@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Vehicle Poster (Standalone)",
+  "version": "1.0.4",
+  "description": "Scrape cars.com → fill Facebook Marketplace vehicle form, no backend required.",
+  "icons": { "128": "assets/icon128.png" },
+  "action": { "default_popup": "popup.html" },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.cars.com/*",
+    "https://facebook.com/*",
+    "https://www.facebook.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.cars.com/*"],
+      "js": ["content/util.js", "content/cars.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.facebook.com/marketplace/create/vehicle*"],
+      "js": ["content/util.js", "content/facebook.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

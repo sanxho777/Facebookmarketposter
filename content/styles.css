@@ -1,0 +1,36 @@
+/* floating pill + modal */
+#vp-pill {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2147483646;
+  display: flex; gap: 8px; align-items: center;
+  background: rgba(17,17,17,.9); color: #fff;
+  padding: 8px 10px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.25);
+  font: 13px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+#vp-pill .btn { background:#10b981; color:#04120a; padding:6px 10px; border-radius:10px; cursor:pointer; }
+#vp-pill .btn.secondary { background:#374151; color:#fff; }
+
+#vp-modal { position: fixed; inset:0; display:none; z-index:2147483646; }
+#vp-modal.show { display:block; }
+#vp-modal .backdrop { position:absolute; inset:0; background:rgba(0,0,0,.35); }
+#vp-modal .card {
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:min(880px,92vw); max-height:80vh; overflow:auto;
+  background:#fff; color:#111; border-radius:14px; box-shadow:0 12px 50px rgba(0,0,0,.35);
+  font: 14px/1.4 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+}
+#vp-modal .vp-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee; }
+#vp-modal .vp-actions .btn { margin-left:8px; }
+#vp-modal .btn { background:#0ea5e9; color:#042333; border:none; padding:8px 12px; border-radius:10px; cursor:pointer; }
+#vp-modal .btn.secondary { background:#e5e7eb; color:#111; }
+#vp-modal .vp-body { padding:10px 16px 16px; }
+#vp-modal .vp-footer { padding:8px 16px 14px; color:#555; font-size:12px; border-top:1px solid #f0f0f0; }
+
+.vp-grid { width:100%; border-collapse:collapse; font-size:14px; }
+.vp-grid td { border-bottom:1px solid #f2f2f2; padding:10px 6px; vertical-align:top; }
+.vp-grid td.key { width:140px; color:#374151; font-weight:600; }
+
+.vp-hint {
+  position: fixed; right: 16px; bottom: 62px; z-index:2147483646;
+  background: #111; color:#fff; padding:8px 10px; border-radius:10px; opacity:.95;
+  font: 12px/1.3 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
+}
