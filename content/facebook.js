@@ -1,6 +1,5 @@
-// content/facebook.js  — standalone autofill on Marketplace (Create -> Vehicle)
+// content/facebook.js — Marketplace autofill, scoped to the LEFT form column
 (() => {
-  // Utilities loaded by util.js (attached as window.vputil in this build)
   const U = window.vputil || {};
   const {
     clean = s => String(s ?? '').replace(/\s+/g, ' ').trim(),
@@ -12,34 +11,61 @@
     normColor = (s) => s
   } = U;
 
-  // ---- scope everything to the main content, never the header search ----
-  const root = () => document.querySelector('[role="main"]') || document.body;
+  // ==== scope & helpers ======================================================
+  const roleMain = () => document.querySelector('[role="main"]') || document.body;
 
-  const $ = (sel, r = root()) => r.querySelector(sel);
-  const $$ = (sel, r = root()) => Array.from(r.querySelectorAll(sel));
+  // the left pane – anchor using the "About this vehicle" group
+  const formScope = () => {
+    const within = roleMain();
+    const anchor = Array.from(within.querySelectorAll('div,section'))
+      .find(el => /about this vehicle/i.test(el.textContent || ''));
+    // fallback to main if not found yet
+    return anchor || within;
+  };
 
-  // Prefers an element whose aria-label (or nearby label) matches /re/
-  function findLabeled(re, within = root()) {
+  const $  = (sel, r=formScope()) => r.querySelector(sel);
+  const $$ = (sel, r=formScope()) => Array.from(r.querySelectorAll(sel));
+
+  async function waitFor(fn, {timeout=12000, interval=150} = {}) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) {
+      const v = fn();
+      if (v) return v;
+      await sleep(interval);
+    }
+    return null;
+  }
+
+  // prefer an element/control whose aria-label or nearby label matches /re/
+  function findLabeled(re, within=formScope()) {
     const rx = re instanceof RegExp ? re : new RegExp(re, 'i');
 
-    // 1) Direct aria-label
-    const labeled = $$('*[aria-label]', within).find(el => rx.test(el.getAttribute('aria-label')));
+    // direct aria-label
+    const labeled = $$('*[aria-label]', within).find(el => rx.test(el.getAttribute('aria-label') || ''));
     if (labeled) return labeled;
 
-    // 2) Text label next to a control
+    // aria-labelledby indirection
+    const labeledby = $$('*[aria-labelledby]', within).find(el => {
+      const ids = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+      const text = ids.map(id => document.getElementById(id)?.textContent || '').join(' ');
+      return rx.test(clean(text));
+    });
+    if (labeledby) return labeledby;
+
+    // text leaf near a control
     const leaves = $$('*', within).filter(n => !n.children.length);
     for (const leaf of leaves) {
-      const text = clean(leaf.textContent || '');
-      if (!rx.test(text)) continue;
+      const txt = clean(leaf.textContent || '');
+      if (!rx.test(txt)) continue;
 
-      // look forward for a control
+      // up to a nearby control
       let cur = leaf;
       for (let i = 0; i < 5 && cur; i++) {
         const ctrl = cur.querySelector('input, textarea, [role="textbox"], [role="combobox"], div[role="button"]');
         if (ctrl) return ctrl;
         cur = cur.parentElement;
       }
-      // or the next sibling lane
+      // …or the next sibling strip
       let sib = leaf.nextElementSibling;
       while (sib && !sib.querySelector('input, textarea, [role="textbox"], [role="combobox"]')) {
         sib = sib.nextElementSibling;
@@ -54,10 +80,9 @@
 
   async function setTextByLabel(labelRe, value) {
     if (value == null || value === '') return false;
-    const host = findLabeled(labelRe);
+    const host = await waitFor(() => findLabeled(labelRe));
     if (!host) return false;
 
-    // Some FB inputs are wrappers; pick the actual input/textarea
     const input = host.matches('input,textarea,[contenteditable="true"],[role="textbox"]')
       ? host
       : host.querySelector('input,textarea,[contenteditable="true"],[role="textbox"]');
@@ -65,15 +90,12 @@
     if (!input) return false;
 
     input.scrollIntoView({ block: 'center', behavior: 'instant' });
-
-    // React-safe value set
-    await sleep(80);
+    await sleep(60);
     input.focus();
     await sleep(40);
-    const isCE = input.getAttribute && input.getAttribute('contenteditable') === 'true';
 
+    const isCE = input.getAttribute && input.getAttribute('contenteditable') === 'true';
     if (isCE || input.getAttribute('role') === 'textbox') {
-      // contenteditable area
       const sel = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(input);
@@ -81,65 +103,58 @@
       sel.addRange(range);
       document.execCommand('insertText', false, String(value));
     } else {
-      // real <input> / <textarea>
       const proto = input.tagName.toLowerCase() === 'textarea'
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
       setter?.call(input, String(value));
       input.dispatchEvent(new InputEvent('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }
-
     await sleep(120);
     return true;
   }
 
   async function setCheckboxByLabel(labelRe, checked = true) {
-    const host = findLabeled(labelRe);
+    const host = await waitFor(() => findLabeled(labelRe));
     if (!host) return false;
 
-    // find a checkbox inside/around
-    const checkbox =
-      host.matches('input[type="checkbox"]') ? host :
+    const box = host.matches('input[type="checkbox"]') ? host :
       host.querySelector('input[type="checkbox"]') ||
       host.closest('label')?.querySelector('input[type="checkbox"]') ||
       host.parentElement?.querySelector('input[type="checkbox"]');
 
-    if (!checkbox) return false;
+    if (!box) return false;
 
-    const current = !!checkbox.checked;
-    if (current !== !!checked) {
-      checkbox.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const cur = !!box.checked;
+    if (cur !== !!checked) {
+      box.scrollIntoView({ block: 'center', behavior: 'instant' });
       await sleep(40);
-      checkbox.click();
+      box.click();
       await sleep(120);
     }
     return true;
   }
 
-  // Open a combobox and pick an option by exact (case-insensitive) text,
-  // or type into the internal Search and press Enter.
   async function setComboByLabel(labelRe, value) {
     if (value == null || value === '') return false;
-    const host = findLabeled(labelRe);
+    const host = await waitFor(() => findLabeled(labelRe));
     if (!host) return false;
 
     const opener = host.matches('[role="combobox"],div[role="button"]') ? host :
                    host.closest('[role="combobox"]') || host.querySelector('[role="combobox"]') || host;
-    opener.scrollIntoView({ block: 'center', behavior: 'instant' });
 
-    await sleep(80);
+    opener.scrollIntoView({ block: 'center', behavior: 'instant' });
+    await sleep(60);
     opener.click();
     await sleep(150);
 
-    // the menu/listbox that opens
+    // menu/list
     const menu = document.querySelector('[role="listbox"], [role="menu"], [role="dialog"]');
     if (!menu) return false;
 
     const want = clean(String(value)).toLowerCase();
 
-    // 1) try direct option match
+    // 1) exact match
     const options = Array.from(menu.querySelectorAll('[role="option"], [role="menuitem"], span, div'))
       .filter(el => clean(el.textContent || '').length > 0);
     for (const op of options) {
@@ -150,52 +165,44 @@
       }
     }
 
-    // 2) try "Search" box inside menu
+    // 2) search inside menu
     const search = menu.querySelector('input[aria-label="Search"], input[type="search"]');
     if (search) {
       search.focus();
       await sleep(40);
-      // clear then type
       search.value = '';
       search.dispatchEvent(new InputEvent('input', { bubbles: true }));
       for (const ch of String(value)) {
         search.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, data: ch, inputType: 'insertText' }));
         search.value += ch;
         search.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
-        await sleep(12);
+        await sleep(8);
       }
-      // press Enter to select first filtered match
-      const e = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
-      search.dispatchEvent(e);
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await sleep(150);
       return true;
     }
 
-    // fallback: type directly to combobox then Enter
+    // 3) fallback: type + Enter to combobox
     opener.focus();
     await sleep(40);
-    for (const ch of String(value)) {
-      opener.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, data: ch, inputType: 'insertText' }));
-      await sleep(10);
-    }
+    document.execCommand('insertText', false, String(value));
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await sleep(150);
     return true;
   }
 
-  // Button UI in the bottom-right (coexists with your current styling)
   function ensurePill() {
     if (document.getElementById('vp-pill')) return;
     const pill = document.createElement('div');
     pill.id = 'vp-pill';
     pill.innerHTML = `
-      <span>Vehicle Poster</span>
+      <span class="label">Vehicle Poster</span>
       <span class="btn" id="vp-auto">Autofill vehicle</span>
       <span class="btn secondary" id="vp-photos">Open photos</span>`;
     document.body.appendChild(pill);
 
     document.getElementById('vp-photos').addEventListener('click', () => {
-      // focus the photo picker button if present
       const add = findLabeled(/Add photos|Photos|Upload photos/i);
       add?.scrollIntoView({ block: 'center', behavior: 'instant' });
       add?.click();
@@ -204,15 +211,16 @@
     document.getElementById('vp-auto').addEventListener('click', runAutofill);
   }
 
+  // ==== main ================================================================
   async function runAutofill() {
     try {
       const { vehiclePayload: v } = await chrome.storage.local.get(['vehiclePayload']);
       if (!v) {
-        alert('No saved data. Go to a cars.com page, Scan, then “Send to FB tab”.');
+        alert('No saved data. On cars.com: click Scan → “Send to FB tab” first.');
         return;
       }
 
-      // Normalize values for FB UI
+      // Normalize values the way FB expects them
       const bodyStyle = inferBodyStyle(v);
       const extColor  = normColor(v.exteriorColor || '');
       const intColor  = normColor(v.interiorColor || '');
@@ -220,19 +228,25 @@
       const trans     = inferTransmission(v);
       const cond      = conditionLabel(v.mileage);
 
-      // Step 1: top section
+      window.scrollTo({ top: 0, behavior: 'instant' });
+
+      // Vehicle type first (unlocks the form combos)
       await setComboByLabel(/^vehicle type$/i, 'Car/van');
 
+      // wait for the Year/Make controls to materialize
+      await waitFor(() => findLabeled(/^year$/i));
+      await waitFor(() => findLabeled(/^make$/i));
+
+      // Top row
       await setComboByLabel(/^year$/i, v.year);
       await setComboByLabel(/^make$/i, v.make);
-      // Model is a plain text input on your build
+      // Model is a text box in your build
       await setTextByLabel(/^model$/i, v.model);
 
-      // IMPORTANT: these three are plain inputs (not combos)
       await setTextByLabel(/^mileage|odometer$/i, v.mileage);
       await setTextByLabel(/^price$/i, v.price);
 
-      // Step 2: appearance/features
+      // Appearance / features
       await setComboByLabel(/body style|bodytype/i, bodyStyle);
       await setComboByLabel(/exterior colou?r/i, extColor);
       await setComboByLabel(/interior colou?r/i, intColor);
@@ -243,21 +257,20 @@
       await setComboByLabel(/fuel type|fuel/i, fuel);
       await setComboByLabel(/transmission/i, trans);
 
-      // Description (keep short if needed)
-      const parts = [
-        clean([v.year, v.make, v.model, v.trim].filter(Boolean).join(' ')),
+      // Title + Description
+      const title = clean([v.year, v.make, v.model, v.trim].filter(Boolean).join(' '));
+      await setTextByLabel(/^title$/i, title);
+
+      const descParts = [
+        title,
         clean(v.drivetrain || ''),
         clean(v.transmission || ''),
         clean(v.engine || ''),
         v.vin ? `VIN ${clean(v.vin)}` : ''
       ].filter(Boolean);
-      await setTextByLabel(/^description|about/i, parts.join('. ') + '.');
+      await setTextByLabel(/^description|about/i, (descParts.join('. ') + '.').replace(/\.\./g, '.'));
 
-      // Optional: Title (FB lets you write your own)
-      await setTextByLabel(/^title$/i, clean([v.year, v.make, v.model, v.trim].filter(Boolean).join(' ')));
-
-      // Done
-      alert('Autofill complete ✔️  Review the form and add photos.');
+      alert('Autofill complete ✔️  Review and add photos.');
     } catch (e) {
       console.warn('Autofill error', e);
       alert('Autofill hit an error. See console for details.');
@@ -265,13 +278,11 @@
   }
 
   // Boot only on the create-vehicle page
-  const onReady = () => {
-    const isCreateVehicle = /facebook\.com\/marketplace\/create\/vehicle/i.test(location.href);
-    if (!isCreateVehicle) return;
+  function boot() {
+    if (!/facebook\.com\/marketplace\/create\/vehicle/i.test(location.href)) return;
     ensurePill();
-  };
-
-  document.addEventListener('readystatechange', onReady);
-  window.addEventListener('load', onReady);
-  setTimeout(onReady, 800);
+  }
+  document.addEventListener('readystatechange', boot);
+  window.addEventListener('load', boot);
+  setTimeout(boot, 800);
 })();
