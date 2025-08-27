@@ -28,6 +28,7 @@
           <div class="vp-actions">
             <span class="btn secondary" id="vp-rescan">Rescan</span>
             <span class="btn" id="vp-send">Send to FB tab</span>
+            <span class="btn secondary" id="vp-download">Download Photos</span>
             <span class="close" id="vp-close">Close</span>
           </div>
         </div>
@@ -78,8 +79,98 @@
     document.getElementById('vp-send').addEventListener('click', async () => {
       if (!payload) payload = await scan();
       await chrome.storage.local.set({ vehiclePayload: payload, vehiclePayloadTs: Date.now() });
-      alert('Saved. Switch to the Facebook tab and click “Autofill vehicle”.');
+      alert('Saved. Switch to the Facebook tab and click "Autofill vehicle".');
     });
+
+    document.getElementById('vp-download').addEventListener('click', async () => {
+      if (!payload) payload = await scan();
+      await downloadPhotosAsZip(payload);
+    });
+  }
+
+  // ---------- DOWNLOAD ----------
+  async function downloadPhotosAsZip(payload) {
+    if (!payload.images || payload.images.length === 0) {
+      alert('No images found to download.');
+      return;
+    }
+
+    const downloadBtn = document.getElementById('vp-download');
+    const originalText = downloadBtn.textContent;
+    
+    try {
+      downloadBtn.textContent = 'Downloading...';
+      downloadBtn.disabled = true;
+
+      // Import JSZip dynamically
+      if (!window.JSZip) {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        document.head.appendChild(script);
+        await new Promise((resolve, reject) => {
+          script.onload = resolve;
+          script.onerror = reject;
+        });
+      }
+
+      const zip = new JSZip();
+      const imageFolder = zip.folder('vehicle-photos');
+      
+      // Download each image
+      for (let i = 0; i < payload.images.length; i++) {
+        const imageUrl = payload.images[i];
+        downloadBtn.textContent = `Downloading ${i + 1}/${payload.images.length}...`;
+        
+        try {
+          const response = await fetch(imageUrl, { 
+            mode: 'cors',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          });
+          
+          if (!response.ok) {
+            console.warn(`Failed to download image ${i + 1}: ${response.status}`);
+            continue;
+          }
+          
+          const blob = await response.blob();
+          const extension = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+          const filename = `image_${String(i + 1).padStart(2, '0')}.${extension}`;
+          
+          imageFolder.file(filename, blob);
+        } catch (error) {
+          console.warn(`Error downloading image ${i + 1}:`, error);
+        }
+      }
+
+      downloadBtn.textContent = 'Creating ZIP...';
+      
+      // Generate and download ZIP
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipUrl = URL.createObjectURL(zipBlob);
+      
+      const vehicleTitle = payload.title || `${payload.year} ${payload.make} ${payload.model}`.trim();
+      const filename = `${vehicleTitle.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_')}_photos.zip`;
+      
+      const a = document.createElement('a');
+      a.href = zipUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      URL.revokeObjectURL(zipUrl);
+      
+      alert(`Downloaded ${Object.keys(imageFolder.files).length} photos as ${filename}`);
+      
+    } catch (error) {
+      console.error('Error downloading photos:', error);
+      alert('Error downloading photos. Check console for details.');
+    } finally {
+      downloadBtn.textContent = originalText;
+      downloadBtn.disabled = false;
+    }
   }
 
   // ---------- SCRAPE ----------
@@ -167,7 +258,7 @@
     return null;
   }
 
-  function imageCount() {
+  function getImages() {
     const imgs = new Set(
       $$('img[src], source[srcset]', document)
         .map(el => el.getAttribute('src') || el.getAttribute('srcset') || '')
@@ -175,7 +266,7 @@
         .map(s => s.replace(/\s+\d+w$/, ''))
         .filter(u => /^https?:\/\//i.test(u) && !/sprite|icon|logo/i.test(u))
     );
-    return imgs.size;
+    return Array.from(imgs);
   }
 
   async function scan() {
@@ -206,7 +297,8 @@
       fuel: basic.fuel || '',
       engine: basic.engine || '',
 
-      imagesCount: imageCount(),
+      images: getImages(),
+      imagesCount: getImages().length,
       description: clean(document.querySelector('meta[name="description"]')?.content || '')
     };
 
