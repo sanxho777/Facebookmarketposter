@@ -99,77 +99,37 @@
     const originalText = downloadBtn.textContent;
     
     try {
-      downloadBtn.textContent = 'Downloading...';
+      downloadBtn.textContent = 'Starting downloads...';
       downloadBtn.disabled = true;
 
-      // Import JSZip dynamically
-      if (!window.JSZip) {
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-        document.head.appendChild(script);
-        await new Promise((resolve, reject) => {
-          script.onload = resolve;
-          script.onerror = reject;
-        });
-      }
-
-      const zip = new JSZip();
-      const imageFolder = zip.folder('vehicle-photos');
-      
-      // Download each image
-      for (let i = 0; i < payload.images.length; i++) {
-        const imageUrl = payload.images[i];
-        downloadBtn.textContent = `Downloading ${i + 1}/${payload.images.length}...`;
-        
-        try {
-          const response = await fetch(imageUrl, { 
-            mode: 'cors',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-          });
-          
-          if (!response.ok) {
-            console.warn(`Failed to download image ${i + 1}: ${response.status}`);
-            continue;
-          }
-          
-          const blob = await response.blob();
-          const extension = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
-          const filename = `image_${String(i + 1).padStart(2, '0')}.${extension}`;
-          
-          imageFolder.file(filename, blob);
-        } catch (error) {
-          console.warn(`Error downloading image ${i + 1}:`, error);
-        }
-      }
-
-      downloadBtn.textContent = 'Creating ZIP...';
-      
-      // Generate and download ZIP
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const zipUrl = URL.createObjectURL(zipBlob);
-      
       const vehicleTitle = payload.title || `${payload.year} ${payload.make} ${payload.model}`.trim();
-      const filename = `${vehicleTitle.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_')}_photos.zip`;
+      const folderName = vehicleTitle.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
       
-      const a = document.createElement('a');
-      a.href = zipUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      // Send message to background script to handle downloads
+      const response = await chrome.runtime.sendMessage({
+        action: 'downloadImages',
+        images: payload.images,
+        folderName: folderName
+      });
       
-      URL.revokeObjectURL(zipUrl);
-      
-      alert(`Downloaded ${Object.keys(imageFolder.files).length} photos as ${filename}`);
+      if (response.success) {
+        alert(`Started downloading ${response.downloaded}/${response.total} photos to Downloads/${folderName}/\n\nImages will appear in your Downloads folder shortly.`);
+        
+        if (response.errors.length > 0) {
+          console.warn('Some downloads failed:', response.errors);
+        }
+      } else {
+        throw new Error(response.error || 'Download failed');
+      }
       
     } catch (error) {
       console.error('Error downloading photos:', error);
       alert('Error downloading photos. Check console for details.');
     } finally {
-      downloadBtn.textContent = originalText;
-      downloadBtn.disabled = false;
+      setTimeout(() => {
+        downloadBtn.textContent = originalText;
+        downloadBtn.disabled = false;
+      }, 2000);
     }
   }
 
@@ -259,14 +219,45 @@
   }
 
   function getImages() {
-    const imgs = new Set(
-      $$('img[src], source[srcset]', document)
-        .map(el => el.getAttribute('src') || el.getAttribute('srcset') || '')
-        .flatMap(s => s.split(/\s*,\s*/))
-        .map(s => s.replace(/\s+\d+w$/, ''))
-        .filter(u => /^https?:\/\//i.test(u) && !/sprite|icon|logo/i.test(u))
+    console.log('=== DEBUG: Finding images ===');
+    
+    // Get all img and source elements
+    const elements = $$('img[src], source[srcset]', document);
+    console.log('Found elements with src/srcset:', elements.length);
+    
+    // Extract URLs
+    const allUrls = elements
+      .map(el => el.getAttribute('src') || el.getAttribute('srcset') || '')
+      .flatMap(s => s.split(/\s*,\s*/))
+      .map(s => s.replace(/\s+\d+w$/, ''));
+    
+    console.log('All URLs extracted:', allUrls.length);
+    
+    // Filter for valid image URLs
+    const validUrls = allUrls.filter(u => /^https?:\/\//i.test(u));
+    console.log('Valid HTTP URLs:', validUrls.length);
+    
+    // Filter out sprites, icons, logos
+    const filteredUrls = validUrls.filter(u => !/sprite|icon|logo|favicon/i.test(u));
+    console.log('After filtering out sprites/icons/logos:', filteredUrls.length);
+    
+    // Look for car-specific images (broader search)
+    const carImages = validUrls.filter(u => 
+      /\.(jpg|jpeg|png|webp)/i.test(u) && 
+      !/sprite|icon|logo|favicon|avatar|profile/i.test(u) &&
+      (u.includes('vehicle') || u.includes('car') || u.includes('auto') || 
+       /\d{3,4}x\d{3,4}/.test(u) || // typical image dimensions
+       /photo|image|gallery/.test(u))
     );
-    return Array.from(imgs);
+    console.log('Car-specific images found:', carImages.length);
+    
+    const imgs = new Set(carImages.length > 0 ? carImages : filteredUrls);
+    const result = Array.from(imgs);
+    
+    console.log('Final image URLs:', result);
+    console.log('=== END DEBUG ===');
+    
+    return result;
   }
 
   async function scan() {

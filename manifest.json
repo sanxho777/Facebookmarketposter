@@ -5,7 +5,10 @@
   "description": "Scrape cars.com → fill Facebook Marketplace vehicle form, no backend required.",
   "icons": { "128": "assets/icon128.png" },
   "action": { "default_popup": "popup.html" },
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "downloads"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "host_permissions": [
     "https://www.cars.com/*",
     "https://facebook.com/*",
