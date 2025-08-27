@@ -14,26 +14,61 @@ window.vputil = (() => {
   const normColor = (raw) => {
     if (!raw) return null;
     const s = clean(raw).toLowerCase();
-    const map = [
-      [/^(jet\s*)?black|ebony|onyx|midnight\s*black/, "Black"],
-      [/classic\s*silver|slate|graphite|charcoal|gunmetal|dark\s*gr[ea]y/, "Silver".toLowerCase()].map ? null : null
-    ];
-    // use simple table (more permissive)
+    
+    // Facebook Marketplace color options: Black, Blue, Brown, Gold, Green, Grey, Pink, Purple, Red, Silver, Orange, White, Yellow, Charcoal, Offwhite, Tan, Beige, Burgundy, Turquoise
     const rules = [
-      [/black|ebony|onyx|midnight/, "Black"],
-      [/silver|slate|graphite|gray|grey|charcoal|gunmetal/, "Silver".includes("x")? "Silver":"Silver"], // keep Silver as default for “Classic Silver Metallic”
-      [/white|ivory|pearl|alabaster|snow/, "White"],
-      [/blue|navy|indigo|cobalt|azure|teal|aqua/, "Blue"],
-      [/red|maroon|burgundy|crimson/, "Red"],
-      [/brown|bronze|mocha|cocoa|coffee|chocolate/, "Brown"],
-      [/beige|tan|sand|cream|khaki|linen/, "Beige"],
-      [/green|emerald|olive|forest/, "Green"],
-      [/gold|champagne/, "Gold"],
-      [/yellow|lemon/, "Yellow"],
-      [/orange|copper|tangerine/, "Orange"],
-      [/purple|plum|violet|amethyst/, "Purple"]
+      // Black variations
+      [/black|ebony|onyx|midnight|jet/, "Black"],
+      
+      // Charcoal (separate from grey/silver for dark greys)
+      [/charcoal|gunmetal|dark\s*gr[ae]y/, "Charcoal"],
+      
+      // Grey/Silver variations  
+      [/silver|platinum|metallic|slate|graphite|titanium/, "Silver"],
+      [/gr[ae]y|pewter/, "Grey"],
+      
+      // Red variations (put before white to catch "Salsa Red Pearl")
+      [/red|crimson|cherry|ruby|scarlet|cardinal|salsa/, "Red"],
+      [/burgundy|maroon|wine/, "Burgundy"],
+      
+      // White variations (be more specific with pearl)
+      [/white|ivory|alabaster|snow|cream|arctic/, "White"],
+      [/\bpearl\b(?!\s*(red|blue|black))/, "White"], // Pearl by itself, not with other colors
+      [/off\s*white|eggshell|vanilla/, "Offwhite"],
+      
+      // Blue variations
+      [/blue|navy|indigo|cobalt|azure|sapphire|steel/, "Blue"],
+      [/teal|turquoise|aqua|cyan/, "Turquoise"],
+      
+      // Brown variations
+      [/brown|bronze|mocha|cocoa|coffee|chocolate|espresso|mahogany/, "Brown"],
+      [/tan|sand|khaki|linen|camel/, "Tan"],
+      [/beige|champagne|cashmere|bisque/, "Beige"],
+      
+      // Green variations
+      [/green|emerald|olive|forest|sage|jade/, "Green"],
+      
+      // Gold variations
+      [/gold|amber/, "Gold"],
+      
+      // Yellow variations
+      [/yellow|lemon|canary|citrus/, "Yellow"],
+      
+      // Orange variations
+      [/orange|copper|tangerine|sunset|flame/, "Orange"],
+      
+      // Purple variations
+      [/purple|plum|violet|amethyst|lavender/, "Purple"],
+      
+      // Pink variations
+      [/pink|rose|blush|magenta/, "Pink"]
     ];
-    for (const [re, label] of rules) if (re.test(s)) return label;
+    
+    for (const [re, label] of rules) {
+      if (re.test(s)) return label;
+    }
+    
+    // If no match found, return the cleaned original
     return clean(raw).replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
   };
 
@@ -50,11 +85,23 @@ window.vputil = (() => {
   };
 
   const inferFuel = (v) => {
+    // Priority 1: Use explicit fuel type from cars.com if available
+    if (v.fuel && v.fuel.trim()) {
+      const fuel = v.fuel.toLowerCase().trim();
+      if (/gasoline|petrol|gas|regular/.test(fuel)) return "Petrol";
+      if (/electric|ev/.test(fuel)) return "Electric";
+      if (/hybrid/.test(fuel)) return "Hybrid";
+      if (/diesel/.test(fuel)) return "Diesel";
+    }
+    
+    // Priority 2: Fallback to engine description inference (only if no explicit fuel type)
     const e = `${v.engine||""} ${v.description||""}`.toLowerCase();
-    if (/electric|ev|kilowatt|kwh/.test(e)) return "Electric";
+    if (/\belectric\b|\bev\b|kilowatt|kwh|battery/.test(e) && !/gasoline|petrol|regular/.test(e)) return "Electric";
     if (/hybrid|hev|plugin|plug-in|phev/.test(e)) return "Hybrid";
     if (/diesel|tdi|duramax|cummins/.test(e)) return "Diesel";
-    return "Gasoline";
+    
+    // Priority 3: Default to Petrol for regular unleaded engines
+    return "Petrol";
   };
 
   const inferTransmission = (v) => {

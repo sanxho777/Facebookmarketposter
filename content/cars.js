@@ -149,6 +149,22 @@
 
     const get = (re) => {
       const leaves = $$('*', block).filter(n => !n.children.length);
+      
+      // First try to find the value in the next leaf node
+      for (let i = 0; i < leaves.length; i++) {
+        const leaf = leaves[i];
+        const t = clean(leaf.textContent);
+        if (re.test(t)) {
+          // Check the next leaf node for the value
+          if (i + 1 < leaves.length) {
+            const nextLeaf = leaves[i + 1];
+            const v = clean(nextLeaf.textContent || '');
+            if (v && v !== t) return v; // Make sure it's not the same text
+          }
+        }
+      }
+      
+      // Fallback to original DOM sibling logic
       for (const leaf of leaves) {
         const t = clean(leaf.textContent);
         if (!re.test(t)) continue;
@@ -219,29 +235,16 @@
   }
 
   function getImages() {
-    console.log('=== DEBUG: Finding images ===');
-    
-    // Get all img and source elements
     const elements = $$('img[src], source[srcset]', document);
-    console.log('Found elements with src/srcset:', elements.length);
     
-    // Extract URLs
     const allUrls = elements
       .map(el => el.getAttribute('src') || el.getAttribute('srcset') || '')
       .flatMap(s => s.split(/\s*,\s*/))
       .map(s => s.replace(/\s+\d+w$/, ''));
     
-    console.log('All URLs extracted:', allUrls.length);
-    
-    // Filter for valid image URLs
     const validUrls = allUrls.filter(u => /^https?:\/\//i.test(u));
-    console.log('Valid HTTP URLs:', validUrls.length);
-    
-    // Filter out sprites, icons, logos
     const filteredUrls = validUrls.filter(u => !/sprite|icon|logo|favicon/i.test(u));
-    console.log('After filtering out sprites/icons/logos:', filteredUrls.length);
     
-    // Look for car-specific images (broader search)
     const carImages = validUrls.filter(u => 
       /\.(jpg|jpeg|png|webp)/i.test(u) && 
       !/sprite|icon|logo|favicon|avatar|profile/i.test(u) &&
@@ -249,15 +252,9 @@
        /\d{3,4}x\d{3,4}/.test(u) || // typical image dimensions
        /photo|image|gallery/.test(u))
     );
-    console.log('Car-specific images found:', carImages.length);
     
     const imgs = new Set(carImages.length > 0 ? carImages : filteredUrls);
-    const result = Array.from(imgs);
-    
-    console.log('Final image URLs:', result);
-    console.log('=== END DEBUG ===');
-    
-    return result;
+    return Array.from(imgs);
   }
 
   async function scan() {

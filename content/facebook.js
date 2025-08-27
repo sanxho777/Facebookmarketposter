@@ -154,11 +154,25 @@
     opener.click();
     await sleep(300);
     
-    // Wait for dropdown menu to appear with longer timeout
-    const menu = await waitFor(() => 
-      document.querySelector('[role="listbox"], [role="menu"], [role="dialog"], .uiLayer') ||
-      document.querySelector('[data-testid*="dropdown"], [data-testid*="menu"]')
-    , {timeout: 3000});
+    // Wait for dropdown menu to appear with longer timeout - prioritize listbox for form dropdowns
+    const menu = await waitFor(() => {
+      // First priority: actual form dropdown listboxes
+      const listbox = document.querySelector('[role="listbox"]');
+      if (listbox && !listbox.closest('[data-testid*="notification"]')) {
+        return listbox;
+      }
+      
+      // Second priority: other dropdown menus not related to notifications
+      const otherMenus = document.querySelectorAll('[role="menu"], [role="dialog"], .uiLayer');
+      for (const menu of otherMenus) {
+        if (!menu.closest('[data-testid*="notification"]') && 
+            !menu.textContent.toLowerCase().includes('notification')) {
+          return menu;
+        }
+      }
+      
+      return null;
+    }, {timeout: 3000});
     
     if (!menu) {
       // Try clicking again
@@ -170,7 +184,7 @@
 
     const actualMenu = menu || document.querySelector('[role="listbox"], [role="menu"], [role="dialog"], .uiLayer');
     const want = clean(String(value)).toLowerCase();
-
+    
     // 1) Try exact match first
     const options = Array.from(actualMenu.querySelectorAll('[role="option"], [role="menuitem"], span, div, li'))
       .filter(el => clean(el.textContent || '').length > 0);
@@ -314,6 +328,7 @@
       const intColor  = normColor(v.interiorColor || '');
       const fuel      = inferFuel(v);
       const trans     = inferTransmission(v);
+      
       const cond      = conditionLabel(v.mileage);
       const title = clean([v.year, v.make, v.model, v.trim].filter(Boolean).join(' '));
 
