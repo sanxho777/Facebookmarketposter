@@ -140,55 +140,114 @@
     const host = await waitFor(() => findLabeled(labelRe));
     if (!host) return false;
 
+    // Find the actual clickable dropdown element
     const opener = host.matches('[role="combobox"],div[role="button"]') ? host :
-                   host.closest('[role="combobox"]') || host.querySelector('[role="combobox"]') || host;
+                   host.closest('[role="combobox"]') || 
+                   host.querySelector('[role="combobox"]') ||
+                   host.querySelector('div[role="button"]') ||
+                   host;
 
     opener.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await sleep(60);
+    await sleep(100);
+    
+    // Try clicking multiple times if needed
     opener.click();
-    await sleep(150);
+    await sleep(300);
+    
+    // Wait for dropdown menu to appear with longer timeout
+    const menu = await waitFor(() => 
+      document.querySelector('[role="listbox"], [role="menu"], [role="dialog"], .uiLayer') ||
+      document.querySelector('[data-testid*="dropdown"], [data-testid*="menu"]')
+    , {timeout: 3000});
+    
+    if (!menu) {
+      // Try clicking again
+      opener.click();
+      await sleep(500);
+      const menu2 = document.querySelector('[role="listbox"], [role="menu"], [role="dialog"], .uiLayer');
+      if (!menu2) return false;
+    }
 
-    // menu/list
-    const menu = document.querySelector('[role="listbox"], [role="menu"], [role="dialog"]');
-    if (!menu) return false;
-
+    const actualMenu = menu || document.querySelector('[role="listbox"], [role="menu"], [role="dialog"], .uiLayer');
     const want = clean(String(value)).toLowerCase();
 
-    // 1) exact match
-    const options = Array.from(menu.querySelectorAll('[role="option"], [role="menuitem"], span, div'))
+    // 1) Try exact match first
+    const options = Array.from(actualMenu.querySelectorAll('[role="option"], [role="menuitem"], span, div, li'))
       .filter(el => clean(el.textContent || '').length > 0);
+    
     for (const op of options) {
-      if (clean(op.textContent || '').toLowerCase() === want) {
+      const optionText = clean(op.textContent || '').toLowerCase();
+      if (optionText === want) {
+        op.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+        await sleep(50);
         op.click();
-        await sleep(150);
+        await sleep(200);
         return true;
       }
     }
 
-    // 2) search inside menu
-    const search = menu.querySelector('input[aria-label="Search"], input[type="search"]');
+    // 2) Try partial match
+    for (const op of options) {
+      const optionText = clean(op.textContent || '').toLowerCase();
+      if (optionText.includes(want) || want.includes(optionText)) {
+        op.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+        await sleep(50);
+        op.click();
+        await sleep(200);
+        return true;
+      }
+    }
+
+    // 3) Search functionality
+    const search = actualMenu.querySelector('input[type="search"], input[placeholder*="Search"], input[placeholder*="search"]');
     if (search) {
       search.focus();
-      await sleep(40);
+      await sleep(50);
       search.value = '';
       search.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      
+      // Type the search value
       for (const ch of String(value)) {
         search.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, data: ch, inputType: 'insertText' }));
         search.value += ch;
         search.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
-        await sleep(8);
+        await sleep(10);
       }
-      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      await sleep(150);
+      
+      await sleep(200);
+      
+      // Try to select first result
+      const firstOption = actualMenu.querySelector('[role="option"], [role="menuitem"]');
+      if (firstOption) {
+        firstOption.click();
+        await sleep(200);
+        return true;
+      }
+      
+      // Press Enter to select
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, code: 'Enter' }));
+      await sleep(200);
       return true;
     }
 
-    // 3) fallback: type + Enter to combobox
+    // 4) Fallback: type directly into opener
     opener.focus();
-    await sleep(40);
-    document.execCommand('insertText', false, String(value));
-    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    await sleep(150);
+    await sleep(50);
+    
+    // Clear existing content
+    opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+    await sleep(20);
+    
+    // Type the value
+    for (const ch of String(value)) {
+      opener.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true }));
+      opener.dispatchEvent(new KeyboardEvent('keypress', { key: ch, bubbles: true }));
+      opener.dispatchEvent(new InputEvent('input', { data: ch, inputType: 'insertText', bubbles: true }));
+      await sleep(10);
+    }
+    
+    opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, code: 'Enter' }));
+    await sleep(200);
     return true;
   }
 
@@ -211,12 +270,41 @@
     document.getElementById('vp-auto').addEventListener('click', runAutofill);
   }
 
+  // Get all form fields in top-to-bottom order, excluding search bars
+  function getFormFieldsInOrder() {
+    const scope = formScope();
+    const allFields = [];
+    
+    // Get all potential form controls
+    const controls = scope.querySelectorAll('input:not([type="hidden"]), textarea, [role="textbox"], [role="combobox"], div[role="button"], select');
+    
+    // Filter out search bars and convert to array with position info
+    for (const control of controls) {
+      // Skip search bars at the top of the page
+      const isSearchBar = control.matches('input[type="search"]') || 
+                         control.matches('input[placeholder*="search" i]') ||
+                         control.matches('input[aria-label*="search" i]') ||
+                         (control.getAttribute('aria-label') || '').toLowerCase().includes('search');
+      
+      if (isSearchBar) continue;
+      
+      const rect = control.getBoundingClientRect();
+      allFields.push({
+        element: control,
+        top: rect.top + window.scrollY
+      });
+    }
+    
+    // Sort by vertical position (top to bottom)
+    return allFields.sort((a, b) => a.top - b.top).map(field => field.element);
+  }
+
   // ==== main ================================================================
   async function runAutofill() {
     try {
       const { vehiclePayload: v } = await chrome.storage.local.get(['vehiclePayload']);
       if (!v) {
-        alert('No saved data. On cars.com: click Scan → “Send to FB tab” first.');
+        alert('No saved data. On cars.com: click Scan → "Send to FB tab" first.');
         return;
       }
 
@@ -227,48 +315,71 @@
       const fuel      = inferFuel(v);
       const trans     = inferTransmission(v);
       const cond      = conditionLabel(v.mileage);
+      const title = clean([v.year, v.make, v.model, v.trim].filter(Boolean).join(' '));
 
       window.scrollTo({ top: 0, behavior: 'instant' });
 
+      // Define field mappings in order of appearance
+      // Content box fields use dropdown selection, non-content box fields use text input
+      const fieldMappings = [
+        { pattern: /^vehicle type$/i, value: 'Car/van', type: 'combo' }, // 1. content box - always car/van
+        { pattern: /^year$/i, value: v.year, type: 'combo' }, // 2. content box - dropdown
+        { pattern: /^make$/i, value: v.make, type: 'combo' }, // 3. content box - dropdown
+        { pattern: /^model$/i, value: v.model, type: 'text' }, // 4. NOT content box - type input
+        { pattern: /^mileage|odometer$/i, value: v.mileage, type: 'text' }, // 5. NOT content box - type input
+        { pattern: /^price$/i, value: v.price, type: 'text' }, // 6. NOT content box - type input
+        { pattern: /body style|bodytype/i, value: bodyStyle, type: 'combo' }, // 7. content box - dropdown
+        { pattern: /exterior colou?r/i, value: extColor, type: 'combo' }, // 8. content box - dropdown
+        { pattern: /interior colou?r/i, value: intColor, type: 'combo' }, // 9. content box - dropdown
+        { pattern: /vehicle condition|condition/i, value: 'Good', type: 'combo' }, // 10. content box - always good
+        { pattern: /fuel type|fuel/i, value: fuel, type: 'combo' }, // 11. content box - dropdown
+        { pattern: /clean title/i, value: true, type: 'checkbox' },
+        { pattern: /transmission/i, value: trans, type: 'combo' },
+        { pattern: /^title$/i, value: title, type: 'text' },
+        { pattern: /^description|about/i, value: (() => {
+          const descParts = [
+            title,
+            clean(v.drivetrain || ''),
+            clean(v.transmission || ''),
+            clean(v.engine || ''),
+            v.vin ? `VIN ${clean(v.vin)}` : ''
+          ].filter(Boolean);
+          return (descParts.join('. ') + '.').replace(/\.\./g, '.');
+        })(), type: 'text' }
+      ];
+
       // Vehicle type first (unlocks the form combos)
       await setComboByLabel(/^vehicle type$/i, 'Car/van');
+      await sleep(500);
 
       // wait for the Year/Make controls to materialize
       await waitFor(() => findLabeled(/^year$/i));
       await waitFor(() => findLabeled(/^make$/i));
 
-      // Top row
-      await setComboByLabel(/^year$/i, v.year);
-      await setComboByLabel(/^make$/i, v.make);
-      // Model is a text box in your build
-      await setTextByLabel(/^model$/i, v.model);
-
-      await setTextByLabel(/^mileage|odometer$/i, v.mileage);
-      await setTextByLabel(/^price$/i, v.price);
-
-      // Appearance / features
-      await setComboByLabel(/body style|bodytype/i, bodyStyle);
-      await setComboByLabel(/exterior colou?r/i, extColor);
-      await setComboByLabel(/interior colou?r/i, intColor);
-
-      // Details
-      await setCheckboxByLabel(/clean title/i, true);
-      await setComboByLabel(/vehicle condition|condition/i, cond);
-      await setComboByLabel(/fuel type|fuel/i, fuel);
-      await setComboByLabel(/transmission/i, trans);
-
-      // Title + Description
-      const title = clean([v.year, v.make, v.model, v.trim].filter(Boolean).join(' '));
-      await setTextByLabel(/^title$/i, title);
-
-      const descParts = [
-        title,
-        clean(v.drivetrain || ''),
-        clean(v.transmission || ''),
-        clean(v.engine || ''),
-        v.vin ? `VIN ${clean(v.vin)}` : ''
-      ].filter(Boolean);
-      await setTextByLabel(/^description|about/i, (descParts.join('. ') + '.').replace(/\.\./g, '.'));
+      // Fill fields in top-to-bottom order with delays
+      for (const mapping of fieldMappings.slice(1)) { // Skip vehicle type since we already did it
+        if (!mapping.value) continue;
+        
+        let success = false;
+        switch (mapping.type) {
+          case 'text':
+            success = await setTextByLabel(mapping.pattern, mapping.value);
+            break;
+          case 'combo':
+            success = await setComboByLabel(mapping.pattern, mapping.value);
+            break;
+          case 'checkbox':
+            success = await setCheckboxByLabel(mapping.pattern, mapping.value);
+            break;
+        }
+        
+        if (success) {
+          console.log(`Filled field: ${mapping.pattern} with value: ${mapping.value}`);
+        }
+        
+        // Wait 500ms between each field
+        await sleep(500);
+      }
 
       alert('Autofill complete ✔️  Review and add photos.');
     } catch (e) {
