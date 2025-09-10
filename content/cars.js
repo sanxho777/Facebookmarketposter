@@ -208,14 +208,56 @@
   function parseHeaderTitle() {
     const h1 = $('h1', document);
     const txt = clean(h1?.textContent || '');
-    const m = txt.match(/(\d{4})\s+([A-Za-z][A-Za-z-]+)\s+([A-Za-z0-9-]+)(?:\s+(.+))?/);
-    let year=null, make='', model='', trim='';
-    if (m) {
-      year  = parseInt(m[1],10);
-      make  = m[2] || '';
-      model = m[3] || '';
-      trim  = (m[4] || '').trim();
+    
+    // Multi-word brands that need special handling
+    const multiWordBrands = [
+      'Alfa Romeo', 'Aston Martin', 'Land Rover', 'Rolls-Royce', 
+      'Mercedes-Benz', 'Lucid'
+    ];
+    
+    let year = null, make = '', model = '', trim = '';
+    
+    // Extract year first
+    const yearMatch = txt.match(/(\d{4})/);
+    if (yearMatch) {
+      year = parseInt(yearMatch[1], 10);
+      
+      // Remove year from string to parse the rest
+      const withoutYear = txt.replace(/^\d{4}\s*/, '').trim();
+      
+      // Check for multi-word brands first
+      let foundMultiWordBrand = false;
+      for (const brand of multiWordBrands) {
+        if (withoutYear.toLowerCase().startsWith(brand.toLowerCase())) {
+          make = brand;
+          const afterBrand = withoutYear.substring(brand.length).trim();
+          
+          // Parse model and trim from remaining text
+          const parts = afterBrand.split(/\s+/);
+          if (parts.length > 0 && parts[0]) {
+            model = parts[0];
+            if (parts.length > 1) {
+              trim = parts.slice(1).join(' ');
+            }
+          }
+          foundMultiWordBrand = true;
+          break;
+        }
+      }
+      
+      // If no multi-word brand found, use original logic
+      if (!foundMultiWordBrand) {
+        const parts = withoutYear.split(/\s+/);
+        if (parts.length >= 2) {
+          make = parts[0];
+          model = parts[1];
+          if (parts.length > 2) {
+            trim = parts.slice(2).join(' ');
+          }
+        }
+      }
     }
+    
     return {year, make, model, trim, title: txt};
   }
 
@@ -243,18 +285,39 @@
       .map(s => s.replace(/\s+\d+w$/, ''));
     
     const validUrls = allUrls.filter(u => /^https?:\/\//i.test(u));
-    const filteredUrls = validUrls.filter(u => !/sprite|icon|logo|favicon/i.test(u));
     
-    const carImages = validUrls.filter(u => 
-      /\.(jpg|jpeg|png|webp)/i.test(u) && 
-      !/sprite|icon|logo|favicon|avatar|profile/i.test(u) &&
-      (u.includes('vehicle') || u.includes('car') || u.includes('auto') || 
-       /\d{3,4}x\d{3,4}/.test(u) || // typical image dimensions
-       /photo|image|gallery/.test(u))
-    );
+    // Filter for high-quality car images only
+    const highQualityCarImages = validUrls.filter(u => {
+      // Must be a valid image format
+      if (!/\.(jpg|jpeg|png|webp)/i.test(u)) return false;
+      
+      // Exclude common non-car images
+      if (/sprite|icon|logo|favicon|avatar|profile|thumbnail|thumb|small|mini/i.test(u)) return false;
+      
+      // Exclude very small images (likely thumbnails)
+      const sizeMatch = u.match(/(\d{2,4})x(\d{2,4})/);
+      if (sizeMatch) {
+        const width = parseInt(sizeMatch[1]);
+        const height = parseInt(sizeMatch[2]);
+        // Exclude images smaller than 400x300 (likely thumbnails)
+        if (width < 400 || height < 300) return false;
+      }
+      
+      // Include images that are clearly vehicle-related or high quality
+      return (
+        u.includes('vehicle') || 
+        u.includes('car') || 
+        u.includes('auto') || 
+        /photo|image|gallery/.test(u) ||
+        /large|big|full|original|high|detail/i.test(u) ||
+        // Include larger dimension patterns (high quality indicators)
+        /\d{3,4}x\d{3,4}/.test(u)
+      );
+    });
     
-    const imgs = new Set(carImages.length > 0 ? carImages : filteredUrls);
-    return Array.from(imgs);
+    // Remove duplicates and limit to exactly 20 high-quality images
+    const uniqueImages = Array.from(new Set(highQualityCarImages));
+    return uniqueImages.slice(0, 20);
   }
 
   async function scan() {
