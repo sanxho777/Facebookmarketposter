@@ -2,6 +2,9 @@
 
 A Chrome extension that scrapes vehicle information from Cars.com and automatically fills Facebook Marketplace vehicle forms, eliminating the need for manual data entry.
 
+Check it out on the chrome web store https://chromewebstore.google.com/detail/vehicle-poster-standalone/bjhfclalldjbgopciimapioeomfkfpnc?hl=en-US&utm_source=ext_sidebar
+or install manually using the steps below.
+
 ## Features
 
 - **Scrape from Cars.com**: Extract vehicle details including year, make, model, trim, mileage, price, and more
