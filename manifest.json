@@ -12,19 +12,21 @@
   "host_permissions": [
     "https://www.cars.com/*",
     "https://facebook.com/*",
-    "https://www.facebook.com/*"
+    "https://www.facebook.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://www.cars.com/*"],
-      "js": ["content/util.js", "content/cars.js"],
-      "css": ["content/styles.css"],
+      "js": ["content/util.js", "content/cars.js", "content/sidebar.js"],
+      "css": ["content/styles.css", "content/sidebar.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.facebook.com/marketplace/create/vehicle*"],
-      "js": ["content/util.js", "content/facebook.js"],
-      "css": ["content/styles.css"],
+      "js": ["content/util.js", "content/facebook.js", "content/sidebar.js"],
+      "css": ["content/styles.css", "content/sidebar.css"],
       "run_at": "document_idle"
     }
   ]

@@ -79,6 +79,26 @@
     document.getElementById('vp-send').addEventListener('click', async () => {
       if (!payload) payload = await scan();
       await chrome.storage.local.set({ vehiclePayload: payload, vehiclePayloadTs: Date.now() });
+
+      // Add to vehicle history
+      const { vehicleHistory = [] } = await chrome.storage.local.get(['vehicleHistory']);
+
+      // Check if vehicle already exists in history (by URL)
+      const existingIndex = vehicleHistory.findIndex(v => v.url === payload.url);
+      if (existingIndex >= 0) {
+        // Update existing entry
+        vehicleHistory[existingIndex] = { ...vehicleHistory[existingIndex], ...payload, scrapedAt: Date.now() };
+      } else {
+        // Add new entry at the beginning
+        vehicleHistory.unshift({ ...payload, scrapedAt: Date.now() });
+
+        // Keep only last 20 vehicles
+        if (vehicleHistory.length > 20) {
+          vehicleHistory.splice(20);
+        }
+      }
+
+      await chrome.storage.local.set({ vehicleHistory });
       alert('Saved. Switch to the Facebook tab and click "Autofill vehicle".');
     });
 

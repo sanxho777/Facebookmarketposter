@@ -352,6 +352,10 @@
         { pattern: /transmission/i, value: trans, type: 'combo' },
         { pattern: /^title$/i, value: title, type: 'text' },
         { pattern: /^description|about/i, value: (() => {
+          // Use AI description if available, otherwise fall back to basic description
+          if (v.aiDescription) {
+            return clean(v.aiDescription);
+          }
           const descParts = [
             title,
             clean(v.drivetrain || ''),

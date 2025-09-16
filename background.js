@@ -1,12 +1,62 @@
-// background.js - Handle downloads from content script
+// background.js - Handle downloads and Ollama requests
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'downloadImages') {
     handleImageDownloads(request.images, request.folderName)
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Will respond asynchronously
+  } else if (request.action === 'ollamaRequest') {
+    handleOllamaRequest(request.url, request.method, request.body)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Will respond asynchronously
   }
 });
+
+async function handleOllamaRequest(url, method = 'GET', body = null) {
+  try {
+    console.log(`Making Ollama request to: ${url}`);
+
+    const options = {
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    };
+
+    if (body && method !== 'GET') {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+
+    console.log(`Ollama response status: ${response.status}`);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      data: data,
+      status: response.status
+    };
+
+  } catch (error) {
+    console.error('Ollama request error:', error);
+    return {
+      success: false,
+      error: error.message,
+      details: {
+        name: error.name,
+        cause: error.cause,
+        stack: error.stack
+      }
+    };
+  }
+}
 
 async function handleImageDownloads(images, folderName) {
   const downloadIds = [];

@@ -4,24 +4,160 @@
   <meta charset="utf-8" />
   <title>Vehicle Poster</title>
   <style>
-    body { font: 13px/1.3 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:12px; min-width: 280px; }
+    body { font: 13px/1.3 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; min-width: 580px; max-width: 900px; min-height: 500px; }
+    .container { display: flex; height: 500px; }
+    .main-panel { flex: 1; padding: 12px; border-right: 1px solid #e5e7eb; }
+    .sidebar { width: 320px; padding: 12px; background: #f9fafb; overflow-y: auto; }
     h1 { font-size:16px; margin:0 0 6px; }
+    h2 { font-size:14px; margin:0 0 8px; color:#374151; }
     .muted { color:#555; }
     .row { margin:8px 0; }
-    button { padding:6px 10px; border-radius:8px; border:0; cursor:pointer; }
+    button { padding:6px 10px; border-radius:8px; border:0; cursor:pointer; font-size: 12px; }
     .primary { background:#10b981; color:#04120a; }
     .secondary { background:#e5e7eb; }
+    .danger { background:#ef4444; color:white; }
     .mono { font-family: ui-monospace,SFMono-Regular,Consolas,monospace; }
+
+    .ai-section { margin: 16px 0; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; }
+    .settings-group { margin: 12px 0; }
+    .setting-label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 4px; }
+    .ai-controls { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+    .ai-status { font-size: 12px; color: #6b7280; margin: 4px 0; }
+    .model-info { font-size: 11px; color: #6b7280; font-style: italic; }
+
+    #ollamaUrl { width: 180px; font-size: 12px; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+    #modelSelect { width: 180px; font-size: 12px; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+    #aiInstructions { width: 100%; min-height: 60px; font-size: 12px; resize: vertical; padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+
+    .model-pull-dialog {
+      margin-top: 8px;
+      padding: 10px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+    }
+    .pull-controls { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+    #modelToPull { flex: 1; font-size: 12px; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 4px; }
+    .pull-progress {
+      font-size: 11px;
+      color: #6b7280;
+      min-height: 16px;
+      font-family: ui-monospace,SFMono-Regular,Consolas,monospace;
+    }
+
+    select:disabled, input:disabled, button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .vehicle-list { display: flex; flex-direction: column; gap: 8px; }
+    .vehicle-item {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 8px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .vehicle-item:hover { border-color: #10b981; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .vehicle-item.selected { border-color: #10b981; background: #f0fdf4; }
+
+    .vehicle-thumbnail {
+      width: 100%;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      background: #f3f4f6;
+    }
+    .vehicle-title { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+    .vehicle-price { color: #10b981; font-weight: 600; font-size: 12px; }
+    .vehicle-details { font-size: 11px; color: #6b7280; margin: 4px 0; }
+    .vehicle-actions { display: flex; gap: 4px; margin-top: 6px; }
+    .vehicle-actions button { padding: 3px 6px; font-size: 10px; }
+
+    .empty-state {
+      text-align: center;
+      color: #6b7280;
+      font-size: 12px;
+      padding: 40px 20px;
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+    }
   </style>
 </head>
 <body>
-  <h1>Vehicle Poster</h1>
-  <div id="status" class="muted">No vehicle saved yet.</div>
-  <div class="row">
-    <button id="openFB" class="secondary">Open Facebook Vehicle Form</button>
-    <button id="autofill" class="primary">Autofill on current FB tab</button>
+  <div class="container">
+    <div class="main-panel">
+      <h1>Vehicle Poster</h1>
+      <div id="status" class="muted">No vehicle saved yet.</div>
+      <div class="row">
+        <button id="openFB" class="secondary">Open Facebook Vehicle Form</button>
+        <button id="autofill" class="primary">Autofill on current FB tab</button>
+      </div>
+      <div id="meta" class="mono muted"></div>
+
+      <div class="ai-section">
+        <h2>🤖 AI Generated Descriptions</h2>
+
+        <!-- Connection Settings -->
+        <div class="settings-group">
+          <label for="ollamaUrl" class="setting-label">Ollama Server URL:</label>
+          <div class="ai-controls">
+            <input type="text" id="ollamaUrl" placeholder="http://localhost:11434" />
+            <button id="testOllama" class="secondary">Test Connection</button>
+          </div>
+        </div>
+
+        <!-- Model Selection -->
+        <div class="settings-group">
+          <label for="modelSelect" class="setting-label">AI Model:</label>
+          <div class="ai-controls">
+            <select id="modelSelect" disabled>
+              <option value="">Test connection first...</option>
+            </select>
+            <button id="refreshModels" class="secondary" disabled>Refresh</button>
+            <button id="pullModel" class="secondary" disabled>Pull Model</button>
+          </div>
+        </div>
+
+        <!-- Model Pull Dialog -->
+        <div id="pullModelDialog" class="model-pull-dialog" style="display: none;">
+          <div class="pull-controls">
+            <input type="text" id="modelToPull" placeholder="Enter model name (e.g., llama3.2:3b)" />
+            <button id="startPull" class="primary">Pull Model</button>
+            <button id="cancelPull" class="secondary">Cancel</button>
+          </div>
+          <div id="pullProgress" class="pull-progress"></div>
+        </div>
+
+        <!-- Generation Controls -->
+        <div class="settings-group">
+          <div class="ai-controls">
+            <button id="generateAI" class="primary" disabled>Generate Description</button>
+            <span class="model-info" id="modelInfo"></span>
+          </div>
+          <div id="aiStatus" class="ai-status"></div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="settings-group">
+          <label for="aiInstructions" class="setting-label">AI Instructions:</label>
+          <textarea id="aiInstructions" placeholder="Write a compelling Facebook Marketplace description emphasizing key features, condition, and value. Keep it engaging and informative."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <h2>Scraped Vehicles</h2>
+      <div id="vehicleList" class="vehicle-list">
+        <div class="empty-state">
+          No vehicles scraped yet.<br>
+          Visit Cars.com and click "Scan" to add vehicles.
+        </div>
+      </div>
+    </div>
   </div>
-  <div id="meta" class="mono muted"></div>
 
   <script src="popup.js"></script>
 </body>
