@@ -127,7 +127,7 @@
 
     vehicleHistory = data.vehicleHistory || [];
     document.getElementById('vp-ollama-url').value = data.ollamaUrl || 'http://localhost:11434';
-    document.getElementById('vp-ai-instructions').value = data.aiInstructions || 'Write a compelling Facebook Marketplace description emphasizing key features, condition, and value within reason of course do not over do it. Also make sure the listing includes me Edgardo Sandoval and my contact info (408) 445-7251 to schedules test drive or for any questions. Mention the dealership as well Capitol Chevrolet.';
+    document.getElementById('vp-ai-instructions').value = data.aiInstructions || 'Write a compelling Facebook Marketplace description emphasizing key features, condition, and value within reason of course do not over do it.';
 
     if (data.selectedModel) {
       const modelSelect = document.getElementById('vp-model-select');
