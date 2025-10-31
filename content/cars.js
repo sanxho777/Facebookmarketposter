@@ -158,61 +158,124 @@
     for (let i = 0; i < 6; i++) {
       window.scrollBy(0, Math.round(window.innerHeight * 0.7));
       await sleep(200);
-      if ($$('h2,h3').some(h => /basics/i.test(h.textContent || ''))) break;
+      if ($$('h2,h3').some(h => /basics|features\s*&\s*specs/i.test(h.textContent || ''))) break;
     }
   }
 
   function fromBasics() {
-    const heads = $$('h2,h3').filter(h => /basics/i.test(h.textContent || ''));
-    if (!heads.length) return {};
-    const block = heads[0].closest('section,div') || heads[0].parentElement;
+    // Look for "Basics" or "Features & specs" section
+    const heads = $$('h2,h3').filter(h => /basics|features\s*&\s*specs/i.test(h.textContent || ''));
 
-    const get = (re) => {
-      const leaves = $$('*', block).filter(n => !n.children.length);
-      
-      // First try to find the value in the next leaf node
-      for (let i = 0; i < leaves.length; i++) {
-        const leaf = leaves[i];
-        const t = clean(leaf.textContent);
-        if (re.test(t)) {
-          // Check the next leaf node for the value
-          if (i + 1 < leaves.length) {
-            const nextLeaf = leaves[i + 1];
-            const v = clean(nextLeaf.textContent || '');
-            if (v && v !== t) return v; // Make sure it's not the same text
+    // Use the section if found, otherwise search entire document
+    const block = heads.length > 0
+      ? (heads[0].closest('section,div') || heads[0].parentElement)
+      : document.body;
+
+    // Helper to extract value from text in new format: "Value keyword"
+    const extractValue = (text, keyword) => {
+      // New format: "Bright White Clearcoat exterior color"
+      const pattern1 = new RegExp(`^(.+?)\\s+${keyword}\\s*$`, 'i');
+      const match1 = text.match(pattern1);
+      if (match1) return match1[1].trim();
+
+      // Old format: "Exterior color: Bright White Clearcoat"
+      const pattern2 = new RegExp(`^${keyword}\\s*:\\s*(.+)$`, 'i');
+      const match2 = text.match(pattern2);
+      if (match2) return match2[1].trim();
+
+      return null;
+    };
+
+    // Search all text nodes for keyword patterns
+    const findByKeyword = (keywords, currentKeyword) => {
+      const allText = $$('*', block)
+        .filter(n => n.offsetParent !== null) // visible elements
+        .map(n => clean(n.textContent))
+        .filter(t => t.length > 0 && t.length < 200); // shorter text = more specific
+
+      // List of other spec keywords to check for contamination
+      const otherKeywords = ['exterior color', 'interior color', 'drivetrain', 'fuel type', 'transmission', 'engine']
+        .filter(k => k !== currentKeyword);
+
+      for (const keyword of keywords) {
+        for (const text of allText) {
+          const value = extractValue(text, keyword);
+          if (!value) continue;
+
+          // Reject if value contains other spec keywords (indicates concatenated specs)
+          const hasOtherKeywords = otherKeywords.some(k =>
+            new RegExp(k, 'i').test(value)
+          );
+
+          if (!hasOtherKeywords) {
+            return value;
           }
-        }
-      }
-      
-      // Fallback to original DOM sibling logic
-      for (const leaf of leaves) {
-        const t = clean(leaf.textContent);
-        if (!re.test(t)) continue;
-
-        const p = leaf.parentElement;
-        if (p && p.children.length >= 2) {
-          const idx = Array.from(p.children).indexOf(leaf);
-          const right = p.children[idx + 1] || p.children[p.children.length - 1];
-          const v = clean(right?.textContent || '');
-          if (v) return v;
-        }
-        const sib = leaf.nextElementSibling;
-        if (sib) {
-          const v = clean(sib.textContent || '');
-          if (v) return v;
         }
       }
       return '';
     };
 
-    const ext  = get(/^\s*Exterior color/i);
-    const intr = get(/^\s*Interior color/i);
-    const drive= get(/^\s*Drivetrain/i);
-    const fuel = get(/^\s*Fuel type/i);
-    const trans= get(/^\s*Transmission/i);
-    const engine= get(/^\s*Engine/i);
-    const vin  = get(/^\s*VIN/i);
-    const miles= get(/^\s*Mileage/i);
+    // VIN needs special handling
+    const getVIN = () => {
+      const allText = $$('*', block)
+        .filter(n => n.offsetParent !== null)
+        .map(n => clean(n.textContent))
+        .filter(t => t.length > 0);
+
+      for (const text of allText) {
+        // Match "VIN: 3C6LRVDG7PE523922 / Stock #: UC14684" or just the VIN pattern
+        const vinMatch = text.match(/VIN[:\s]*([A-HJ-NPR-Z0-9]{17})/i);
+        if (vinMatch) return vinMatch[1];
+
+        // Also try standalone VIN pattern
+        const standaloneVin = text.match(/^([A-HJ-NPR-Z0-9]{17})$/);
+        if (standaloneVin) return standaloneVin[1];
+      }
+      return '';
+    };
+
+    // Mileage extraction - search entire page, not just Features section
+    const getMileage = () => {
+      // First try to find in header area (near price)
+      const headerArea = $$('h1,h2,h3,div,span', document)
+        .filter(n => n.offsetParent !== null)
+        .slice(0, 200); // top of page
+
+      for (const node of headerArea) {
+        const text = clean(node.textContent);
+        // Try to find mileage in format "48,254 mi" or "48254 mi"
+        const mileMatch = text.match(/(\d{1,3}(?:,\d{3})*|\d{4,6})\s*mi(?:les)?/i);
+        if (mileMatch) {
+          return U.asNumber ? U.asNumber(mileMatch[1]) : asNumber(mileMatch[1]);
+        }
+      }
+
+      // Fallback to Features section
+      const allText = $$('*', block)
+        .filter(n => n.offsetParent !== null)
+        .map(n => clean(n.textContent))
+        .filter(t => t.length > 0);
+
+      for (const text of allText) {
+        // Try "Mileage: 48254" format
+        if (/mileage/i.test(text)) {
+          const value = extractValue(text, 'mileage');
+          if (value) {
+            return U.asNumber ? U.asNumber(value) : asNumber(value);
+          }
+        }
+      }
+      return null;
+    };
+
+    const ext   = findByKeyword(['exterior color', 'exterior'], 'exterior color');
+    const intr  = findByKeyword(['interior color', 'interior'], 'interior color');
+    const drive = findByKeyword(['drivetrain'], 'drivetrain');
+    const fuel  = findByKeyword(['fuel type', 'fuel'], 'fuel type');
+    const trans = findByKeyword(['transmission'], 'transmission');
+    const engine= findByKeyword(['engine'], 'engine');
+    const vin   = getVIN();
+    const miles = getMileage();
 
     return {
       exteriorColorRaw: ext, interiorColorRaw: intr,
@@ -221,37 +284,40 @@
       transmission: trans || '',
       engine: engine || '',
       vin: vin || '',
-      mileage: U.asNumber ? U.asNumber(miles) : asNumber(miles)
+      mileage: miles
     };
   }
 
   function parseHeaderTitle() {
     const h1 = $('h1', document);
-    const txt = clean(h1?.textContent || '');
-    
+    let txt = clean(h1?.textContent || '');
+
+    // Remove "Used" or "New" prefix
+    txt = txt.replace(/^(Used|New)\s+/i, '');
+
     // Multi-word brands that need special handling
     const multiWordBrands = [
-      'Alfa Romeo', 'Aston Martin', 'Land Rover', 'Rolls-Royce', 
+      'Alfa Romeo', 'Aston Martin', 'Land Rover', 'Rolls-Royce',
       'Mercedes-Benz', 'Lucid'
     ];
-    
+
     let year = null, make = '', model = '', trim = '';
-    
+
     // Extract year first
     const yearMatch = txt.match(/(\d{4})/);
     if (yearMatch) {
       year = parseInt(yearMatch[1], 10);
-      
+
       // Remove year from string to parse the rest
       const withoutYear = txt.replace(/^\d{4}\s*/, '').trim();
-      
+
       // Check for multi-word brands first
       let foundMultiWordBrand = false;
       for (const brand of multiWordBrands) {
         if (withoutYear.toLowerCase().startsWith(brand.toLowerCase())) {
           make = brand;
           const afterBrand = withoutYear.substring(brand.length).trim();
-          
+
           // Parse model and trim from remaining text
           const parts = afterBrand.split(/\s+/);
           if (parts.length > 0 && parts[0]) {
@@ -264,7 +330,7 @@
           break;
         }
       }
-      
+
       // If no multi-word brand found, use original logic
       if (!foundMultiWordBrand) {
         const parts = withoutYear.split(/\s+/);
@@ -277,8 +343,9 @@
         }
       }
     }
-    
-    return {year, make, model, trim, title: txt};
+
+    // Return the original h1 text for the title (with Used/New)
+    return {year, make, model, trim, title: clean(h1?.textContent || '')};
   }
 
   function parsePrice() {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vehicle Poster",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Scrape cars.com → fill Facebook Marketplace vehicle form, no backend required.",
   "icons": { "128": "assets/icon128.png" },
   "action": { "default_popup": "popup.html" },
