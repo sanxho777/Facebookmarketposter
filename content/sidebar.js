@@ -7,6 +7,7 @@
   // Detect current site
   function getCurrentSite() {
     if (/cars\.com/i.test(location.hostname)) return 'cars';
+    if (/capitolchevysj\.com/i.test(location.hostname)) return 'capitol';
     if (/facebook\.com/i.test(location.hostname)) return 'facebook';
     return 'unknown';
   }
@@ -32,9 +33,9 @@
           <div id="vp-current-status" class="current-status">No vehicle scanned yet</div>
           <div id="vp-current-meta" class="current-meta"></div>
           <div class="action-buttons">
-            ${currentSite === 'cars' ? '<button id="vp-scan-current" class="btn primary">Scan This Page</button>' : ''}
+            ${currentSite === 'cars' || currentSite === 'capitol' ? '<button id="vp-scan-current" class="btn primary">Scan This Page</button>' : ''}
             ${currentSite === 'facebook' ? '<button id="vp-autofill-fb" class="btn primary">Autofill Vehicle Form</button>' : ''}
-            ${currentSite === 'cars' ? '<button id="vp-open-fb" class="btn secondary">Open Facebook</button>' : ''}
+            ${currentSite === 'cars' || currentSite === 'capitol' ? '<button id="vp-open-fb" class="btn secondary">Open Facebook</button>' : ''}
             ${currentSite === 'facebook' ? '<button id="vp-open-photos" class="btn secondary">Open Photos</button>' : ''}
           </div>
         </div>
@@ -97,7 +98,7 @@
           <div id="vp-vehicle-list" class="vehicle-list">
             <div class="empty-state">
               No vehicles scraped yet.<br>
-              Click "Scan This Page" on a Cars.com vehicle page.
+              Click "Scan This Page" on a vehicle page.
             </div>
           </div>
         </div>
@@ -163,13 +164,14 @@
       vehicleList.innerHTML = `
         <div class="empty-state">
           No vehicles scraped yet.<br>
-          Click "Scan This Page" on a Cars.com vehicle page.
+          Click "Scan This Page" on a vehicle page.
         </div>`;
       return;
     }
 
     vehicleList.innerHTML = vehicleHistory.map((vehicle, index) => `
       <div class="vehicle-item ${selectedVehicle && selectedVehicle.url === vehicle.url ? 'selected' : ''}" data-index="${index}">
+        <button class="vehicle-delete-btn" data-index="${index}" title="Remove vehicle">✕</button>
         <img class="vehicle-thumbnail" src="${vehicle.images && vehicle.images[0] || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI0Y5RkFGQiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIi8+'}" alt="Vehicle" />
         <div class="vehicle-info">
           <div class="vehicle-title">${vehicle.year} ${vehicle.make} ${vehicle.model}</div>
@@ -191,8 +193,32 @@
 
   // Setup vehicle list event listeners
   function setupVehicleListeners() {
+    document.querySelectorAll('.vehicle-delete-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const index = parseInt(btn.dataset.index);
+        const vehicle = vehicleHistory[index];
+
+        if (confirm(`Remove ${vehicle.year} ${vehicle.make} ${vehicle.model} from history?`)) {
+          vehicleHistory.splice(index, 1);
+          await chrome.storage.local.set({ vehicleHistory });
+
+          // If this was the selected vehicle, clear it
+          if (selectedVehicle && selectedVehicle.url === vehicle.url) {
+            selectedVehicle = null;
+            await chrome.storage.local.set({ vehiclePayload: null });
+            updateCurrentVehicle(null, null);
+          }
+
+          updateVehicleList();
+        }
+      };
+    });
+
     document.querySelectorAll('.use-btn').forEach(btn => {
       btn.onclick = async (e) => {
+        e.preventDefault();
         e.stopPropagation();
         const index = parseInt(btn.dataset.index);
         const vehicle = vehicleHistory[index];
@@ -205,18 +231,22 @@
 
     document.querySelectorAll('.download-btn').forEach(btn => {
       btn.onclick = async (e) => {
+        e.preventDefault();
         e.stopPropagation();
         const index = parseInt(btn.dataset.index);
         const vehicle = vehicleHistory[index];
+        console.log('Download photos clicked for vehicle:', vehicle);
         await downloadVehiclePhotos(vehicle);
       };
     });
 
     document.querySelectorAll('.post-fb-btn').forEach(btn => {
       btn.onclick = async (e) => {
+        e.preventDefault();
         e.stopPropagation();
         const index = parseInt(btn.dataset.index);
         const vehicle = vehicleHistory[index];
+        console.log('Post to FB clicked for vehicle:', vehicle);
         await chrome.storage.local.set({ vehiclePayload: vehicle, vehiclePayloadTs: Date.now() });
         window.open('https://www.facebook.com/marketplace/create/vehicle', '_blank');
       };
@@ -482,8 +512,8 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
     };
 
     // Site-specific actions
-    if (currentSite === 'cars') {
-      // Cars.com specific actions
+    if (currentSite === 'cars' || currentSite === 'capitol') {
+      // Cars.com and Capitol Chevrolet specific actions
       const scanBtn = document.getElementById('vp-scan-current');
       if (scanBtn) {
         scanBtn.onclick = async () => {
@@ -492,7 +522,7 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
           if (bottomScanButton) {
             bottomScanButton.click();
           } else {
-            alert('Bottom scan button not found. Make sure you are on a Cars.com vehicle details page.');
+            alert('Bottom scan button not found. Make sure you are on a vehicle details page.');
           }
         };
       }
@@ -1286,12 +1316,12 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
   // Initialize based on current site
   const currentSite = getCurrentSite();
 
-  if (currentSite === 'cars' || currentSite === 'facebook') {
+  if (currentSite === 'cars' || currentSite === 'capitol' || currentSite === 'facebook') {
     createToggleButton();
 
     // Auto-open sidebar
-    if (currentSite === 'cars') {
-      // Always open on Cars.com
+    if (currentSite === 'cars' || currentSite === 'capitol') {
+      // Always open on Cars.com and Capitol Chevrolet
       createSidebar();
     } else if (currentSite === 'facebook' && /marketplace\/create\/vehicle/i.test(location.pathname)) {
       // Only open on Facebook vehicle creation page

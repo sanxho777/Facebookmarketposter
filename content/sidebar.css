@@ -267,6 +267,7 @@
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  position: relative;
 }
 
 .vehicle-item:hover {
@@ -332,6 +333,38 @@
 .vehicle-actions .btn {
   min-width: 60px;
   white-space: nowrap;
+}
+
+.vehicle-delete-btn {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  background: #f3f4f6;
+  border: none;
+  border-radius: 50%;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  opacity: 0.7;
+  z-index: 10;
+}
+
+.vehicle-delete-btn:hover {
+  background: #ef4444;
+  color: white;
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.vehicle-item:hover .vehicle-delete-btn {
+  opacity: 1;
 }
 
 /* Description Dialog */

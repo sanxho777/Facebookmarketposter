@@ -23,8 +23,8 @@ window.vputil = (() => {
       // Charcoal (separate from grey/silver for dark greys)
       [/charcoal|gunmetal|dark\s*gr[ae]y/, "Charcoal"],
       
-      // Grey/Silver variations  
-      [/silver|platinum|metallic|slate|graphite|titanium/, "Silver"],
+      // Grey/Silver variations
+      [/\bsilver\b|\bplatinum\b|\bslate\b|\bgraphite\b|\btitanium\b/, "Silver"],
       [/gr[ae]y|pewter/, "Grey"],
       
       // Red variations (put before white to catch "Salsa Red Pearl")
