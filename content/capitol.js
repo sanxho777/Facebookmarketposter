@@ -459,47 +459,69 @@
     return clean(document.querySelector('meta[name="description"]')?.content || '');
   }
 
-  function getImages() {
+  async function getImages() {
     // Get the VIN from the page to filter images for this specific vehicle
     const pageVin = getVIN();
     console.log('[Capitol Scraper] Current vehicle VIN:', pageVin);
 
-    // FIRST: Try to find images in data attributes or gallery-specific elements
-    // Many sites store the full image list in a data attribute or specific gallery container
-    const galleryContainer = document.querySelector('[class*="gallery"], [class*="photos"], [class*="slider"], [id*="gallery"], [id*="photos"]');
-    console.log('[Capitol Scraper] Gallery container found:', !!galleryContainer);
+    // STEP 1: Find the gallery/slider and trigger lazy loading
+    const gallerySelectors = [
+      '.media-gallery',
+      '.vehicle-photos',
+      '.slider-for',
+      '.swiper-wrapper',
+      '[class*="gallery"]',
+      '[class*="photos"]',
+      '[class*="slider"]',
+      '[class*="carousel"]',
+      '[id*="gallery"]',
+      '[id*="photos"]',
+      '[id*="slider"]'
+    ];
 
-    if (galleryContainer) {
-      console.log('[Capitol Scraper] Gallery container class:', galleryContainer.className);
-      console.log('[Capitol Scraper] Gallery container id:', galleryContainer.id);
-      console.log('[Capitol Scraper] Gallery container HTML:', galleryContainer.outerHTML.substring(0, 500));
-    }
-
-    // Look for data attributes that might contain image URLs
-    let dataImages = [];
-    if (galleryContainer) {
-      // Check all data attributes
-      const allDataAttrs = Array.from(galleryContainer.attributes).filter(attr => attr.name.startsWith('data-'));
-      console.log('[Capitol Scraper] Gallery data attributes:', allDataAttrs.map(a => a.name));
-
-      const dataAttr = galleryContainer.getAttribute('data-images') ||
-                      galleryContainer.getAttribute('data-gallery') ||
-                      galleryContainer.getAttribute('data-photos') ||
-                      galleryContainer.getAttribute('data-src') ||
-                      galleryContainer.getAttribute('data-srcset');
-      if (dataAttr) {
-        try {
-          const parsed = JSON.parse(dataAttr);
-          dataImages = Array.isArray(parsed) ? parsed : [];
-          console.log('[Capitol Scraper] Found images in data attribute:', dataImages.length);
-        } catch (e) {
-          console.log('[Capitol Scraper] Could not parse data attribute:', e.message);
-        }
+    let galleryContainer = null;
+    for (const selector of gallerySelectors) {
+      const el = document.querySelector(selector);
+      if (el && el.offsetParent !== null) {
+        galleryContainer = el;
+        console.log('[Capitol Scraper] Found gallery with selector:', selector);
+        break;
       }
     }
 
-    // Strategy: Find the main content area (exclude sidebars and "similar vehicles")
-    // Look for the primary vehicle display section
+    console.log('[Capitol Scraper] Gallery container found:', !!galleryContainer);
+
+    // STEP 2: Trigger lazy loading by interacting with gallery
+    if (galleryContainer) {
+      console.log('[Capitol Scraper] Triggering lazy load...');
+
+      // Try to click through gallery navigation to load all images
+      const navButtons = $$('button, a, [role="button"]', galleryContainer).filter(btn => {
+        const text = (btn.textContent || '').toLowerCase();
+        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+        return text.includes('next') || ariaLabel.includes('next') ||
+               btn.className.includes('next') || btn.className.includes('arrow');
+      });
+
+      console.log('[Capitol Scraper] Found navigation buttons:', navButtons.length);
+
+      // Click next button multiple times to trigger lazy loading
+      if (navButtons.length > 0) {
+        for (let i = 0; i < 25; i++) {
+          navButtons[0].click();
+          await sleep(100);
+        }
+        console.log('[Capitol Scraper] Clicked through gallery');
+      }
+
+      // Also scroll within the gallery container
+      galleryContainer.scrollBy(0, 500);
+      await sleep(200);
+      galleryContainer.scrollBy(0, -500);
+      await sleep(200);
+    }
+
+    // STEP 3: Find the main content area (exclude sidebars and "similar vehicles")
     const mainContent = document.querySelector('main') ||
                        document.querySelector('article') ||
                        document.querySelector('[role="main"]') ||
@@ -509,167 +531,167 @@
     console.log('[Capitol Scraper] Main content area:', mainContent.tagName);
 
     // Exclude sections that typically contain other vehicles
-    const excludedSections = $$('[class*="similar"], [class*="related"], [class*="recommend"], [id*="similar"], [id*="related"]', mainContent);
+    const excludedSections = $$('[class*="similar"], [class*="related"], [class*="recommend"], [id*="similar"], [id*="related"]', document);
     console.log('[Capitol Scraper] Excluded sections found:', excludedSections.length);
 
-    // Get all vehicle images from main content, but prioritize those in gallery container
-    // First try to find images with vehicle-images in src
-    let allImages = $$('img[src*="vehicle-images"]', galleryContainer || mainContent);
-    console.log('[Capitol Scraper] Images with "vehicle-images" in src:', allImages.length);
+    // STEP 4: Collect all potential image elements
+    // Look in gallery first, then main content
+    const searchArea = galleryContainer || mainContent;
+    const allImageElements = $$('img, source, picture source', searchArea);
+    console.log('[Capitol Scraper] Total image elements in search area:', allImageElements.length);
 
-    // If no images found, try ALL images in gallery container
-    if (allImages.length === 0 && galleryContainer) {
-      allImages = $$('img', galleryContainer);
-      console.log('[Capitol Scraper] All images in gallery container:', allImages.length);
+    // STEP 5: Extract ALL possible image URLs from each element
+    const imageUrlCandidates = new Set();
+
+    for (const el of allImageElements) {
+      // Check all possible attributes
+      const attrs = [
+        'src', 'data-src', 'data-lazy', 'data-lazy-src', 'data-original',
+        'srcset', 'data-srcset', 'data-lazy-srcset',
+        'data-image', 'data-url', 'data-full-src'
+      ];
+
+      for (const attr of attrs) {
+        const value = el.getAttribute(attr);
+        if (!value) continue;
+
+        // Handle srcset format
+        if (attr.includes('srcset')) {
+          const urls = value.split(',').map(s => s.trim().split(/\s+/)[0]);
+          urls.forEach(u => imageUrlCandidates.add(u));
+        } else {
+          imageUrlCandidates.add(value);
+        }
+      }
     }
 
-    // Also check for lazy-loaded images
-    const lazyImages = $$('img[data-src], img[data-lazy], img[data-original]', galleryContainer || mainContent);
-    console.log('[Capitol Scraper] Lazy-loaded images found:', lazyImages.length);
+    console.log('[Capitol Scraper] Total image URL candidates:', imageUrlCandidates.size);
 
-    console.log('[Capitol Scraper] Total vehicle images in search area:', allImages.length);
+    // STEP 6: Filter and normalize URLs
+    const filteredUrls = Array.from(imageUrlCandidates)
+      .filter(url => {
+        // Must be a valid URL
+        if (!/^https?:\/\//i.test(url)) return false;
 
-    // Filter out images that are in excluded sections
-    const galleryImages = allImages.filter(img => {
-      // Check if image is inside an excluded section
-      for (const excludedSection of excludedSections) {
-        if (excludedSection.contains(img)) {
-          console.log('[Capitol Scraper] Excluding image from similar/related section');
+        // Must be an image file
+        if (!/\.(jpg|jpeg|png|webp)/i.test(url)) return false;
+
+        // Exclude UI elements
+        if (/sprite|icon|logo|favicon|avatar|profile|banner|badge|button|nav|menu|header|footer|validation|edmunds|cars-good|cars-fair|find-new-roads/i.test(url)) {
           return false;
         }
-      }
 
-      const src = img.getAttribute('src') || '';
-
-      // Must be from vehicle-images CDN
-      if (!/vehicle-images\.dealerinspire\.com/i.test(src)) return false;
-
-      // Must be a photo (not badge/logo)
-      if (!/\.(jpg|jpeg|png|webp)/i.test(src)) return false;
-      if (/sprite|icon|logo|favicon|avatar|profile|banner|badge|button|validation|edmunds|cars-good|cars-fair|find-new-roads/i.test(src)) {
-        console.log('[Capitol Scraper] Excluding badge/logo:', src);
-        return false;
-      }
-
-      // Use VIN filtering ONLY if the image clearly has a different VIN
-      // (not if it just doesn't have a VIN at all)
-      if (pageVin && src.includes('/')) {
-        // Extract VIN pattern from URL (17 alphanumeric characters)
-        const vinMatch = src.match(/[A-HJ-NPR-Z0-9]{17}/);
-        if (vinMatch && vinMatch[0] !== pageVin) {
-          console.log('[Capitol Scraper] Excluding image with different VIN:', vinMatch[0]);
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    console.log('[Capitol Scraper] Filtered gallery images:', galleryImages.length);
-
-    // Extract the URLs and convert to full-size
-    // Check both src and srcset attributes, plus lazy-load attributes
-    const galleryUrls = galleryImages
-      .flatMap(img => {
-        const urls = [];
-
-        // Get src
-        let src = img.getAttribute('src') || '';
-        if (src) urls.push(src);
-
-        // Get lazy-load attributes
-        const dataSrc = img.getAttribute('data-src') || '';
-        if (dataSrc) urls.push(dataSrc);
-
-        const dataLazy = img.getAttribute('data-lazy') || '';
-        if (dataLazy) urls.push(dataLazy);
-
-        const dataOriginal = img.getAttribute('data-original') || '';
-        if (dataOriginal) urls.push(dataOriginal);
-
-        // Get srcset (which often has higher quality images)
-        const srcset = img.getAttribute('srcset') || '';
-        if (srcset) {
-          // srcset format: "url1 1x, url2 2x" or "url1 100w, url2 200w"
-          const srcsetUrls = srcset.split(',').map(s => s.trim().split(/\s+/)[0]);
-          urls.push(...srcsetUrls);
-        }
-
-        const dataSrcset = img.getAttribute('data-srcset') || '';
-        if (dataSrcset) {
-          const srcsetUrls = dataSrcset.split(',').map(s => s.trim().split(/\s+/)[0]);
-          urls.push(...srcsetUrls);
-        }
-
-        return urls;
-      })
-      .map(url => {
-        console.log('[Capitol Scraper] Original image URL:', url);
-        // Remove size/thumbnail paths to get full-size
-        let normalized = url.replace(/\/thumbnails\/[^/]+\//g, '/');
-        normalized = normalized.replace(/\/\d{2,4}x\d{2,4}\//g, '/');
-        console.log('[Capitol Scraper] Normalized image URL:', normalized);
-        return normalized;
-      })
-      .filter(u => /^https?:\/\//i.test(u));
-
-    console.log('[Capitol Scraper] Total gallery URLs before deduplication:', galleryUrls.length);
-
-    // Remove duplicates
-    let uniqueImages = Array.from(new Set(galleryUrls));
-    console.log('[Capitol Scraper] Unique gallery images:', uniqueImages.length);
-    console.log('[Capitol Scraper] Duplicates removed:', galleryUrls.length - uniqueImages.length);
-
-    // If we still don't have enough, fallback to broader search
-    if (uniqueImages.length < 15) {
-      console.log('[Capitol Scraper] Not enough gallery images, using fallback search');
-
-      const elements = $$('img[src], source[srcset]', document);
-      const allUrls = elements
-        .map(el => el.getAttribute('src') || el.getAttribute('srcset') || '')
-        .flatMap(s => s.split(/\s*,\s*/))
-        .map(s => s.replace(/\s+\d+w$/, '').trim())
-        .filter(u => /^https?:\/\//i.test(u));
-
-      const highQualityCarImages = allUrls.filter(u => {
-        if (!/\.(jpg|jpeg|png|webp)/i.test(u)) return false;
-
-        // More aggressive exclusions
-        if (/sprite|icon|logo|favicon|avatar|profile|banner|badge|button|nav|menu|header|footer|validation|edmunds|cars-good|cars-fair|find-new-roads/i.test(u)) return false;
-
-        // Use VIN filtering ONLY if the image has a different VIN (same logic as above)
-        if (pageVin && /vehicle-images\.dealerinspire\.com/i.test(u)) {
-          const vinMatch = u.match(/[A-HJ-NPR-Z0-9]{17}/);
-          if (vinMatch && vinMatch[0] !== pageVin) {
-            console.log('[Capitol Scraper] Fallback: Excluding image with different VIN:', vinMatch[0]);
-            return false;
-          }
-        }
-
-        const sizeMatch = u.match(/(\d{2,4})x(\d{2,4})/);
+        // Size filtering - must be at least 400x300
+        const sizeMatch = url.match(/(\d{2,4})x(\d{2,4})/);
         if (sizeMatch) {
           const width = parseInt(sizeMatch[1]);
           const height = parseInt(sizeMatch[2]);
           if (width < 400 || height < 300) return false;
         }
 
-        const isCapitolDomain = /capitolchevysj\.com|dealerinspire\.com|ddccdn\.com|ddc\.com|dealer\.com/i.test(u);
-        if (isCapitolDomain) return true;
+        // CRITICAL: VIN filtering - ONLY include images with matching VIN
+        if (pageVin && /vehicle-images\.dealerinspire\.com/i.test(url)) {
+          const vinMatch = url.match(/[A-HJ-NPR-Z0-9]{17}/);
+          if (vinMatch) {
+            if (vinMatch[0] !== pageVin) {
+              console.log('[Capitol Scraper] Excluding image with different VIN:', vinMatch[0], 'Expected:', pageVin);
+              return false;
+            }
+            console.log('[Capitol Scraper] Including image with matching VIN:', vinMatch[0]);
+            return true; // Definitely include if VIN matches
+          }
+        }
 
-        return (
-          u.includes('vehicle') ||
-          u.includes('car') ||
-          u.includes('auto') ||
-          /photo|image|gallery|media/i.test(u) ||
-          /large|big|full|original|high|detail/i.test(u)
-        );
+        // For dealerinspire.com images, if no VIN found, be more conservative
+        if (/dealerinspire\.com/i.test(url)) {
+          // Only include if it's likely a vehicle photo
+          return url.includes('vehicle') || /photo|image|gallery/i.test(url);
+        }
+
+        // Allow other image hosting providers as long as they passed earlier filters
+        return true;
+      })
+      .map(url => {
+        // Normalize to full-size images
+        let normalized = url;
+
+        // Remove thumbnail paths
+        normalized = normalized.replace(/\/thumbnails\/[^/]+\//g, '/');
+        normalized = normalized.replace(/\/thumb\//g, '/');
+        normalized = normalized.replace(/\/small\//g, '/');
+        normalized = normalized.replace(/\/medium\//g, '/');
+        normalized = normalized.replace(/\/large\//g, '/');
+
+        // Remove size specifications
+        normalized = normalized.replace(/\/\d{2,4}x\d{2,4}\//g, '/');
+        normalized = normalized.replace(/_\d{2,4}x\d{2,4}\./g, '.');
+
+        console.log('[Capitol Scraper] URL normalized:', url, '=>', normalized);
+        return normalized;
       });
 
-      uniqueImages = Array.from(new Set([...uniqueImages, ...highQualityCarImages]));
-      console.log('[Capitol Scraper] Combined unique images:', uniqueImages.length);
+    // STEP 7: Deduplicate
+    let uniqueImages = Array.from(new Set(filteredUrls));
+    console.log('[Capitol Scraper] Unique images after filtering:', uniqueImages.length);
+
+    // STEP 8: If still not enough, do a more aggressive page-wide search
+    if (uniqueImages.length < 10) {
+      console.log('[Capitol Scraper] Not enough images, doing page-wide search with VIN filter');
+
+      const allPageImages = $$('img, source', document);
+      console.log('[Capitol Scraper] Total page images:', allPageImages.length);
+
+      for (const el of allPageImages) {
+        // Skip if in excluded section
+        let inExcluded = false;
+        for (const excludedSection of excludedSections) {
+          if (excludedSection.contains(el)) {
+            inExcluded = true;
+            break;
+          }
+        }
+        if (inExcluded) continue;
+
+        const attrs = ['src', 'data-src', 'data-lazy', 'srcset', 'data-srcset'];
+        for (const attr of attrs) {
+          const value = el.getAttribute(attr);
+          if (!value) continue;
+
+          const urls = attr.includes('srcset')
+            ? value.split(',').map(s => s.trim().split(/\s+/)[0])
+            : [value];
+
+          for (let url of urls) {
+            // Same filtering as above
+            if (!/^https?:\/\//i.test(url)) continue;
+            if (!/\.(jpg|jpeg|png|webp)/i.test(url)) continue;
+            if (/sprite|icon|logo|favicon|avatar|profile|banner|badge|button|nav|menu|header|footer|validation|edmunds|cars-good|cars-fair|find-new-roads/i.test(url)) continue;
+
+            // VIN filtering for dealerinspire - prefer matching VIN
+            if (/vehicle-images\.dealerinspire\.com/i.test(url)) {
+              const vinMatch = url.match(/[A-HJ-NPR-Z0-9]{17}/);
+              if (vinMatch && vinMatch[0] !== pageVin) {
+                // Skip images with different VIN
+                continue;
+              }
+            }
+
+            // Normalize and add image
+            url = url.replace(/\/thumbnails\/[^/]+\//g, '/');
+            url = url.replace(/\/\d{2,4}x\d{2,4}\//g, '/');
+            url = url.replace(/_\d{2,4}x\d{2,4}\./g, '.');
+            uniqueImages.push(url);
+          }
+        }
+      }
+
+      uniqueImages = Array.from(new Set(uniqueImages));
+      console.log('[Capitol Scraper] After page-wide search:', uniqueImages.length);
     }
 
     console.log('[Capitol Scraper] Final image count:', Math.min(uniqueImages.length, 20));
+    console.log('[Capitol Scraper] Final image URLs:', uniqueImages.slice(0, 20));
+
     return uniqueImages.slice(0, 20);
   }
 
@@ -695,6 +717,9 @@
       interiorColor: normalizedInterior
     });
 
+    // Get images (async operation)
+    const images = await getImages();
+
     const v = {
       source: 'capitolchevysj.com',
       url: location.href,
@@ -716,8 +741,8 @@
       engine: basic.engine || '',
       fuel: basic.fuelEfficiency || '',
 
-      images: getImages(),
-      imagesCount: getImages().length,
+      images: images,
+      imagesCount: images.length,
       description: description
     };
 
