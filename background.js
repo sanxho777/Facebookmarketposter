@@ -21,6 +21,8 @@ async function handleOllamaRequest(url, method = 'GET', body = null) {
       method: method,
       headers: {
         'Content-Type': 'application/json',
+        // Ollama checks Origin header — spoof localhost to pass CORS check
+        'Origin': 'http://localhost',
       }
     };
 
@@ -33,7 +35,8 @@ async function handleOllamaRequest(url, method = 'GET', body = null) {
     console.log(`Ollama response status: ${response.status}`);
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const text = await response.text().catch(() => '');
+      throw new Error(`HTTP ${response.status}: ${response.statusText}${text ? ' — ' + text.slice(0, 200) : ''}`);
     }
 
     const data = await response.json();
@@ -46,9 +49,16 @@ async function handleOllamaRequest(url, method = 'GET', body = null) {
 
   } catch (error) {
     console.error('Ollama request error:', error);
+
+    // Give a helpful message if it's a 403
+    let errorMsg = error.message;
+    if (errorMsg.includes('403')) {
+      errorMsg = `${errorMsg}\n\nTo fix: run Ollama with OLLAMA_ORIGINS="*" or set it in your Ollama config.`;
+    }
+
     return {
       success: false,
-      error: error.message,
+      error: errorMsg,
       details: {
         name: error.name,
         cause: error.cause,

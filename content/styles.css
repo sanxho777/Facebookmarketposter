@@ -1,13 +1,23 @@
 /* floating pill + modal */
 #vp-pill {
-  position: fixed; left: 16px; bottom: 16px; z-index: 2147483646;
-  display: flex; gap: 8px; align-items: center;
-  background: rgba(17,17,17,.9); color: #fff;
-  padding: 8px 10px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.25);
-  font: 13px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  position: fixed !important; left: 16px !important; bottom: 16px !important;
+  z-index: 2147483647 !important;
+  display: flex !important; gap: 8px !important; align-items: center !important;
+  background: rgba(17,17,17,.9) !important; color: #fff !important;
+  padding: 8px 10px !important; border-radius: 14px !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,.25) !important;
+  font: 13px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial !important;
+  visibility: visible !important; opacity: 1 !important;
+  pointer-events: auto !important; transform: none !important;
 }
-#vp-pill .btn { background:#10b981; color:#04120a; padding:6px 10px; border-radius:10px; cursor:pointer; }
-#vp-pill .btn.secondary { background:#374151; color:#fff; }
+#vp-pill .btn {
+  background: #10b981 !important; color: #04120a !important;
+  padding: 6px 10px !important; border-radius: 10px !important;
+  cursor: pointer !important; display: inline-block !important;
+  visibility: visible !important;
+}
+#vp-pill .btn.secondary { background: #374151 !important; color: #fff !important; }
+#vp-pill .label { color: #fff !important; font-weight: 600 !important; }
 
 #vp-modal { position: fixed; inset:0; display:none; z-index:2147483646; }
 #vp-modal.show { display:block; }

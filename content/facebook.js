@@ -265,13 +265,15 @@
     return true;
   }
 
+  const isMotoPage = () => /facebook\.com\/marketplace\/create\/(motorcycle|vehicle)/i.test(location.href);
+
   function ensurePill() {
     if (document.getElementById('vp-pill')) return;
     const pill = document.createElement('div');
     pill.id = 'vp-pill';
     pill.innerHTML = `
       <span class="label">Vehicle Poster</span>
-      <span class="btn" id="vp-auto">Autofill vehicle</span>
+      <span class="btn" id="vp-auto">Autofill</span>
       <span class="btn secondary" id="vp-photos">Open photos</span>`;
     document.body.appendChild(pill);
 
@@ -281,7 +283,84 @@
       add?.click();
     });
 
-    document.getElementById('vp-auto').addEventListener('click', runAutofill);
+    document.getElementById('vp-auto').addEventListener('click', async () => {
+      const { vehiclePayload: v } = await chrome.storage.local.get(['vehiclePayload']);
+      if (v?.vehicleCategory === 'motorcycle') {
+        runMotoAutofill();
+      } else {
+        runAutofill();
+      }
+    });
+  }
+
+  // ==== motorcycle autofill ================================================
+  async function runMotoAutofill() {
+    try {
+      const { vehiclePayload: v } = await chrome.storage.local.get(['vehiclePayload']);
+      if (!v) {
+        alert('No saved data. On houseofthunderhd.com: click Scan → "Send to FB tab" first.');
+        return;
+      }
+
+      const extColor = normColor(v.exteriorColor || '');
+      const title    = clean([v.year, v.make, v.model].filter(Boolean).join(' '));
+
+      // FB requires mileage >= 300. New bikes show 5 miles — use the minimum.
+      const mileage = (v.mileage != null && v.mileage >= 300) ? v.mileage : 300;
+
+      // Fuel type mapping to FB options
+      const fuelMap = { 'petrol': 'Petrol', 'gasoline': 'Petrol', 'electric': 'Electric', 'hybrid': 'Hybrid' };
+      const fuel = fuelMap[(v.fuel || 'petrol').toLowerCase()] || 'Petrol';
+
+      const description = (() => {
+        if (v.aiDescription) return clean(v.aiDescription);
+        return [
+          title,
+          v.engine       ? `Engine: ${clean(v.engine)}`         : '',
+          v.vin          ? `VIN: ${clean(v.vin)}`               : '',
+          v.stockNumber  ? `Stock #${clean(v.stockNumber)}`     : '',
+          v.description  ? clean(v.description)                 : '',
+        ].filter(Boolean).join('. ').replace(/\.\s*\./g, '.').replace(/\.+$/, '') + '.';
+      })();
+
+      window.scrollTo({ top: 0, behavior: 'instant' });
+
+      // Step 1: Set Vehicle type to "Motorcycle" — MUST be first, unlocks rest of form
+      await setComboByLabel(/^vehicle type$/i, 'Motorcycle');
+      await sleep(1000);
+      await waitFor(() => findLabeled(/^year$/i), { timeout: 8000 });
+      await waitFor(() => findLabeled(/^make$/i), { timeout: 8000 });
+
+      // Step 2: Fill all fields in order
+      const fields = [
+        { pattern: /^year$/i,           value: v.year,    type: 'combo'    },
+        { pattern: /^make$/i,           value: v.make,    type: 'combo'    },
+        { pattern: /^model$/i,          value: v.model,   type: 'text'     },
+        { pattern: /mileage|odometer/i, value: mileage,   type: 'text'     },
+        { pattern: /^price$/i,          value: v.price,   type: 'text'     },
+        { pattern: /exterior colou?r/i, value: extColor,  type: 'combo'    },
+        { pattern: /fuel type|fuel/i,   value: fuel,      type: 'combo'    },
+        { pattern: /condition/i,        value: 'Good',    type: 'combo'    },
+        { pattern: /clean title/i,      value: true,      type: 'checkbox' },
+        { pattern: /^title$/i,          value: title,     type: 'text'     },
+        { pattern: /description|about/i,value: description,type: 'text'    },
+      ];
+
+      for (const f of fields) {
+        if (f.value == null || f.value === '' || f.value === false) continue;
+        let ok = false;
+        if      (f.type === 'text')     ok = await setTextByLabel(f.pattern, f.value);
+        else if (f.type === 'combo')    ok = await setComboByLabel(f.pattern, f.value);
+        else if (f.type === 'checkbox') ok = await setCheckboxByLabel(f.pattern, f.value);
+        console.log(`[Moto] ${ok ? '✓' : '✗'} ${f.pattern} → ${f.value}`);
+        await sleep(500);
+      }
+
+      alert('Motorcycle autofill complete ✔️  Review and add photos manually.');
+    } catch (e) {
+      console.warn('Moto autofill error', e);
+      alert('Autofill hit an error. See console for details.');
+    }
   }
 
   // Get all form fields in top-to-bottom order, excluding search bars
@@ -407,8 +486,13 @@
     }
   }
 
-  // Boot only on the create-vehicle page
+  // Boot on the single vehicle create page (handles cars AND motorcycles via dropdown)
+  // If someone lands on /create/motorcycle (old cached link), redirect to /create/vehicle
   function boot() {
+    if (/facebook\.com\/marketplace\/create\/motorcycle/i.test(location.href)) {
+      location.replace('https://www.facebook.com/marketplace/create/vehicle');
+      return;
+    }
     if (!/facebook\.com\/marketplace\/create\/vehicle/i.test(location.href)) return;
     ensurePill();
   }

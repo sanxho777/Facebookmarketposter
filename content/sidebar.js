@@ -8,6 +8,7 @@
   function getCurrentSite() {
     if (/cars\.com/i.test(location.hostname)) return 'cars';
     if (/capitolchevysj\.com/i.test(location.hostname)) return 'capitol';
+    if (/houseofthunderhd\.com/i.test(location.hostname)) return 'houseofthunder';
     if (/facebook\.com/i.test(location.hostname)) return 'facebook';
     return 'unknown';
   }
@@ -20,9 +21,10 @@
 
     sidebar = document.createElement('div');
     sidebar.id = 'vp-sidebar';
+    const isMoto = getCurrentSite() === 'houseofthunder';
     sidebar.innerHTML = `
       <div class="sidebar-header">
-        <h2>🚗 Vehicle Poster</h2>
+        <h2>${isMoto ? '🏍️ Moto Poster' : '🚗 Vehicle Poster'}</h2>
         <button id="vp-sidebar-close" class="close-btn">✕</button>
       </div>
 
@@ -33,9 +35,10 @@
           <div id="vp-current-status" class="current-status">No vehicle scanned yet</div>
           <div id="vp-current-meta" class="current-meta"></div>
           <div class="action-buttons">
-            ${currentSite === 'cars' || currentSite === 'capitol' ? '<button id="vp-scan-current" class="btn primary">Scan This Page</button>' : ''}
+            ${currentSite === 'cars' || currentSite === 'capitol' || currentSite === 'houseofthunder' ? '<button id="vp-scan-current" class="btn primary">Scan This Page</button>' : ''}
             ${currentSite === 'facebook' ? '<button id="vp-autofill-fb" class="btn primary">Autofill Vehicle Form</button>' : ''}
             ${currentSite === 'cars' || currentSite === 'capitol' ? '<button id="vp-open-fb" class="btn secondary">Open Facebook</button>' : ''}
+            ${currentSite === 'houseofthunder' ? '<button id="vp-open-fb" class="btn secondary">Open Facebook (Moto)</button>' : ''}
             ${currentSite === 'facebook' ? '<button id="vp-open-photos" class="btn secondary">Open Photos</button>' : ''}
           </div>
         </div>
@@ -114,6 +117,8 @@
     if (sidebar) {
       sidebar.remove();
       sidebar = null;
+      // Remember it was closed
+      sessionStorage.setItem('vp-sidebar-closed', '1');
     }
   }
 
@@ -248,7 +253,10 @@
         const vehicle = vehicleHistory[index];
         console.log('Post to FB clicked for vehicle:', vehicle);
         await chrome.storage.local.set({ vehiclePayload: vehicle, vehiclePayloadTs: Date.now() });
-        window.open('https://www.facebook.com/marketplace/create/vehicle', '_blank');
+        const fbUrl = vehicle.vehicleCategory === 'motorcycle'
+          ? 'https://www.facebook.com/marketplace/create/motorcycle'
+          : 'https://www.facebook.com/marketplace/create/vehicle';
+        window.open(fbUrl, '_blank');
       };
     });
 
@@ -512,25 +520,47 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
     };
 
     // Site-specific actions
-    if (currentSite === 'cars' || currentSite === 'capitol') {
-      // Cars.com and Capitol Chevrolet specific actions
+    if (currentSite === 'cars' || currentSite === 'capitol' || currentSite === 'houseofthunder') {
       const scanBtn = document.getElementById('vp-scan-current');
       if (scanBtn) {
         scanBtn.onclick = async () => {
-          // Just trigger the same click as the bottom scan button
-          const bottomScanButton = document.getElementById('vp-scan');
-          if (bottomScanButton) {
-            bottomScanButton.click();
-          } else {
-            alert('Bottom scan button not found. Make sure you are on a vehicle details page.');
+          // Try pill's scan button first
+          const pillScan = document.getElementById('vp-scan');
+          if (pillScan) { pillScan.click(); return; }
+
+          // For houseofthunder, use the exposed scan function directly
+          if (currentSite === 'houseofthunder') {
+            scanBtn.textContent = 'Scanning…';
+            scanBtn.disabled = true;
+            try {
+              let attempts = 0;
+              while (!window.__hotShowModal && attempts < 30) {
+                await new Promise(r => setTimeout(r, 100));
+                attempts++;
+              }
+              if (window.__hotShowModal) {
+                await window.__hotShowModal();
+              } else {
+                alert('Scanner not ready. Please refresh the page and try again.');
+              }
+            } finally {
+              scanBtn.textContent = 'Scan This Page';
+              scanBtn.disabled = false;
+            }
+            return;
           }
+
+          alert('Scan button not found. Make sure you are on a vehicle details page.');
         };
       }
 
       const openFbBtn = document.getElementById('vp-open-fb');
       if (openFbBtn) {
         openFbBtn.onclick = () => {
-          window.open('https://www.facebook.com/marketplace/create/vehicle', '_blank');
+          const fbUrl = currentSite === 'houseofthunder'
+            ? 'https://www.facebook.com/marketplace/create/motorcycle'
+            : 'https://www.facebook.com/marketplace/create/vehicle';
+          window.open(fbUrl, '_blank');
         };
       }
     } else if (currentSite === 'facebook') {
@@ -1297,6 +1327,7 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
     if (sidebar) {
       removeSidebar();
     } else {
+      sessionStorage.removeItem('vp-sidebar-closed');
       createSidebar();
     }
   }
@@ -1307,7 +1338,7 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
 
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'vp-sidebar-toggle';
-    toggleBtn.innerHTML = '🚗';
+    toggleBtn.innerHTML = getCurrentSite() === 'houseofthunder' ? '🏍️' : '🚗';
     toggleBtn.title = 'Toggle Vehicle Poster Sidebar';
     toggleBtn.onclick = toggleSidebar;
     document.body.appendChild(toggleBtn);
@@ -1316,16 +1347,50 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
   // Initialize based on current site
   const currentSite = getCurrentSite();
 
-  if (currentSite === 'cars' || currentSite === 'capitol' || currentSite === 'facebook') {
+  if (currentSite === 'cars' || currentSite === 'capitol' || currentSite === 'houseofthunder' || currentSite === 'facebook') {
     createToggleButton();
 
+    // For houseofthunder detail pages, also inject the scan pill
+    // (houseofthunder.js builds this too, but sidebar.js is guaranteed to run)
+    if (currentSite === 'houseofthunder' && !document.getElementById('vp-pill')) {
+      const isListPage = /\/Motorcycles(\/All-Inventory|\/?\??$)/i.test(location.pathname);
+      if (!isListPage) {
+        const pill = document.createElement('div');
+        pill.id = 'vp-pill';
+        pill.innerHTML = `
+          <span class="label">Moto Poster</span>
+          <span class="btn secondary" id="vp-scan">Scan</span>
+          <span class="btn" id="vp-open-fb">Open Facebook</span>`;
+        document.body.appendChild(pill);
+        console.log('[sidebar] Moto pill injected');
+
+        document.getElementById('vp-open-fb').addEventListener('click', () => {
+          window.open('https://www.facebook.com/marketplace/create/motorcycle', '_blank');
+        });
+
+        document.getElementById('vp-scan').addEventListener('click', async () => {
+          // Wait up to 3s for houseofthunder.js to expose its scan function
+          let attempts = 0;
+          while (!window.__hotShowModal && attempts < 30) {
+            await new Promise(r => setTimeout(r, 100));
+            attempts++;
+          }
+          if (window.__hotShowModal) {
+            window.__hotShowModal();
+          } else {
+            alert('Scanner not ready. Please refresh the page and try again.');
+          }
+        });
+      }
+    }
+
+    const userClosed = sessionStorage.getItem('vp-sidebar-closed') === '1';
+
     // Auto-open sidebar
-    if (currentSite === 'cars' || currentSite === 'capitol') {
-      // Always open on Cars.com and Capitol Chevrolet
+    if ((currentSite === 'cars' || currentSite === 'capitol' || currentSite === 'houseofthunder') && !userClosed) {
       createSidebar();
-    } else if (currentSite === 'facebook' && /marketplace\/create\/vehicle/i.test(location.pathname)) {
-      // Only open on Facebook vehicle creation page
+    } else if (currentSite === 'facebook' && /marketplace\/create\/(vehicle|motorcycle)/i.test(location.pathname) && !userClosed) {
       createSidebar();
     }
-  }
+  };
 })();

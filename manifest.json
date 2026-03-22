@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Vehicle Poster",
-  "version": "1.1.8",
-  "description": "Scrape dealership websites (cars.com, Capitol Chevrolet) → fill Facebook Marketplace vehicle form, no backend required.",
+  "version": "1.2.0",
+  "description": "Scrape dealership websites (cars.com, Capitol Chevrolet, House of Thunder HD) → fill Facebook Marketplace vehicle/motorcycle form, no backend required.",
   "icons": { "128": "assets/icon128.png" },
   "action": { "default_popup": "popup.html" },
   "permissions": ["storage", "activeTab", "scripting", "downloads"],
@@ -13,6 +13,8 @@
     "https://www.cars.com/*",
     "https://www.capitolchevysj.com/*",
     "https://capitolchevysj.com/*",
+    "https://www.houseofthunderhd.com/*",
+    "https://houseofthunderhd.com/*",
     "https://facebook.com/*",
     "https://www.facebook.com/*",
     "http://localhost/*",
@@ -32,7 +34,19 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.facebook.com/marketplace/create/vehicle*"],
+      "matches": [
+        "https://www.houseofthunderhd.com/Motorcycles*",
+        "https://houseofthunderhd.com/Motorcycles*"
+      ],
+      "js": ["content/util.js", "content/houseofthunder.js", "content/sidebar.js"],
+      "css": ["content/styles.css", "content/sidebar.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/marketplace/create/vehicle*",
+        "https://www.facebook.com/marketplace/create/motorcycle*"
+      ],
       "js": ["content/util.js", "content/facebook.js", "content/sidebar.js"],
       "css": ["content/styles.css", "content/sidebar.css"],
       "run_at": "document_idle"
