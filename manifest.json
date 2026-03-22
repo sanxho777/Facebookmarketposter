@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vehicle Poster",
   "version": "1.1.9",
-  "description": "Scrape dealership websites (cars.com, Capitol Chevrolet, House of Thunder HD) → fill Facebook Marketplace vehicle/motorcycle form, no backend required.",
+  "description": "Scrape dealership websites (cars.com, Capitol Chevrolet, House of Thunder HD) → fill Facebook Marketplace vehicle/motorcycle form.",
   "icons": { "128": "assets/icon128.png" },
   "action": { "default_popup": "popup.html" },
   "permissions": ["storage", "activeTab", "scripting", "downloads"],
