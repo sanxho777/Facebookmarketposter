@@ -305,22 +305,30 @@
       const extColor = normColor(v.exteriorColor || '');
       const title    = clean([v.year, v.make, v.model].filter(Boolean).join(' '));
 
-      // FB requires mileage >= 300. New bikes show 5 miles — use the minimum.
+      // FB requires mileage >= 300. New bikes show low miles — use the minimum.
       const mileage = (v.mileage != null && v.mileage >= 300) ? v.mileage : 300;
+
+      // Price: null means not found, 0 means call for price — FB requires a number
+      const price = v.price ?? 0;
 
       // Fuel type mapping to FB options
       const fuelMap = { 'petrol': 'Petrol', 'gasoline': 'Petrol', 'electric': 'Electric', 'hybrid': 'Hybrid' };
       const fuel = fuelMap[(v.fuel || 'petrol').toLowerCase()] || 'Petrol';
 
+      // Transmission — motorcycles are manual by default unless explicitly automatic
+      const trans = /automatic|auto\b/i.test(v.transmission || '') ? 'Automatic transmission' : 'Manual transmission';
+
+      // Build description — use AI description if available, otherwise combine key fields
       const description = (() => {
         if (v.aiDescription) return clean(v.aiDescription);
-        return [
+        const parts = [
           title,
-          v.engine       ? `Engine: ${clean(v.engine)}`         : '',
-          v.vin          ? `VIN: ${clean(v.vin)}`               : '',
-          v.stockNumber  ? `Stock #${clean(v.stockNumber)}`     : '',
-          v.description  ? clean(v.description)                 : '',
-        ].filter(Boolean).join('. ').replace(/\.\s*\./g, '.').replace(/\.+$/, '') + '.';
+          v.engine       ? `Engine: ${clean(v.engine)}`     : '',
+          v.vin          ? `VIN: ${clean(v.vin)}`           : '',
+          v.stockNumber  ? `Stock #${clean(v.stockNumber)}` : '',
+          v.description  ? clean(v.description)             : '',
+        ].filter(Boolean);
+        return parts.join('. ').replace(/\.\s*\./g, '.').replace(/\.+$/, '') + '.';
       })();
 
       window.scrollTo({ top: 0, behavior: 'instant' });
@@ -333,17 +341,18 @@
 
       // Step 2: Fill all fields in order
       const fields = [
-        { pattern: /^year$/i,           value: v.year,    type: 'combo'    },
-        { pattern: /^make$/i,           value: v.make,    type: 'combo'    },
-        { pattern: /^model$/i,          value: v.model,   type: 'text'     },
-        { pattern: /mileage|odometer/i, value: mileage,   type: 'text'     },
-        { pattern: /^price$/i,          value: v.price,   type: 'text'     },
-        { pattern: /exterior colou?r/i, value: extColor,  type: 'combo'    },
-        { pattern: /fuel type|fuel/i,   value: fuel,      type: 'combo'    },
-        { pattern: /condition/i,        value: 'Good',    type: 'combo'    },
-        { pattern: /clean title/i,      value: true,      type: 'checkbox' },
-        { pattern: /^title$/i,          value: title,     type: 'text'     },
-        { pattern: /description|about/i,value: description,type: 'text'    },
+        { pattern: /^year$/i,              value: v.year,    type: 'combo'    },
+        { pattern: /^make$/i,              value: v.make,    type: 'combo'    },
+        { pattern: /^model$/i,             value: v.model,   type: 'text'     },
+        { pattern: /mileage|odometer/i,    value: mileage,   type: 'text'     },
+        { pattern: /^price$/i,             value: price,     type: 'text'     },
+        { pattern: /exterior colou?r/i,    value: extColor,  type: 'combo'    },
+        { pattern: /fuel type|fuel/i,      value: fuel,      type: 'combo'    },
+        { pattern: /transmission/i,        value: trans,     type: 'combo'    },
+        { pattern: /condition/i,           value: 'Good',    type: 'combo'    },
+        { pattern: /clean title/i,         value: true,      type: 'checkbox' },
+        { pattern: /^title$/i,             value: title,     type: 'text'     },
+        { pattern: /^description$/i,       value: description, type: 'text'   },
       ];
 
       for (const f of fields) {
@@ -352,7 +361,7 @@
         if      (f.type === 'text')     ok = await setTextByLabel(f.pattern, f.value);
         else if (f.type === 'combo')    ok = await setComboByLabel(f.pattern, f.value);
         else if (f.type === 'checkbox') ok = await setCheckboxByLabel(f.pattern, f.value);
-        console.log(`[Moto] ${ok ? '✓' : '✗'} ${f.pattern} → ${f.value}`);
+        console.log(`[Moto] ${ok ? '✓' : '✗'} ${f.pattern} → ${String(f.value).slice(0, 60)}`);
         await sleep(500);
       }
 
