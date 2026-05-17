@@ -22,7 +22,7 @@
 
   vehicleHistory = data.vehicleHistory || [];
   ollamaUrl.value = data.ollamaUrl || 'http://localhost:11434';
-  aiInstructions.value = data.aiInstructions || 'Write a compelling Facebook Marketplace description emphasizing key features, condition, and value.';
+  aiInstructions.value = data.aiInstructions || 'Write a compelling Facebook Marketplace description emphasizing key features, condition, and value. Works with Cars.com, Capitol Chevrolet, House of Thunder HD, and The Motor Cafe.';
 
   // Set selected model if available
   if (data.selectedModel) {
@@ -47,14 +47,14 @@
       vehicleList.innerHTML = `
         <div class="empty-state">
           No vehicles scraped yet.<br>
-          Visit Cars.com and click "Scan" to add vehicles.
+          Visit Cars.com, Capitol Chevrolet, House of Thunder HD, or The Motor Cafe and click "Scan" to add vehicles.
         </div>`;
       return;
     }
 
     vehicleList.innerHTML = vehicleHistory.map((vehicle, index) => `
       <div class="vehicle-item" data-index="${index}" ${selectedVehicle && selectedVehicle.url === vehicle.url ? 'class="vehicle-item selected"' : ''}>
-        <img class="vehicle-thumbnail" src="${vehicle.images && vehicle.images[0] || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDMwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjUgNzVIMTc1VjEyNUgxMjVWNzVaIiBmaWxsPSIjOUNBM0FGIi8+CjwvZ3ZnPg=='}" alt="Vehicle" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDMwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMjUgNzVIMTc1VjEyNUgxMjVWNzVaIiBmaWxsPSIjOUNBM0FGIi8+PC9zdmc+'" />
+        <img class="vehicle-thumbnail" src="${vehicle.images && vehicle.images[0] || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDMwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiNGOUZBRkIiLz48L3N2Zz4='}" />
         <div class="vehicle-title">${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.trim || ''}</div>
         <div class="vehicle-price">$${vehicle.price?.toLocaleString() || 'N/A'}</div>
         <div class="vehicle-details">${vehicle.mileage?.toLocaleString() || 'N/A'} mi • ${vehicle.exteriorColor || 'N/A'}</div>
@@ -253,7 +253,6 @@
 
     const pullProgress = document.getElementById('pullProgress');
     const startPull = document.getElementById('startPull');
-    const cancelPull = document.getElementById('cancelPull');
 
     startPull.disabled = true;
     pullProgress.textContent = `Pulling ${modelName}...`;
@@ -409,7 +408,7 @@ Write a Facebook Marketplace vehicle description that is engaging, informative, 
 
   document.getElementById('autofill').onclick = async () => {
     const [tab] = await chrome.tabs.query({ active:true, currentWindow:true });
-    if (!tab || !/facebook\.com\/marketplace\/create\/vehicle/.test(tab.url || '')) {
+    if (!tab || !/facebook\.com\/marketplace\/create\/(vehicle|motorcycle)/.test(tab.url || '')) {
       alert('Open the Facebook "Create → Vehicle" page first.');
       return;
     }
