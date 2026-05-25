@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vehicle Poster",
   "version": "1.2.1",
-  "description": "Scrape dealership websites (cars.com, Capitol Chevrolet, House of Thunder HD, The Motor Cafe) → fill Facebook Marketplace vehicle/motorcycle form.",
+  "description": "Scrape dealership websites (The Motor Cafe) → fill Facebook Marketplace vehicle/motorcycle form.",
   "icons": { "128": "assets/icon128.png" },
   "action": { "default_popup": "popup.html" },
   "permissions": ["storage", "activeTab", "scripting", "downloads"],
@@ -44,7 +44,10 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.themotorcafe.com/search/inventory/usage/*"],
+      "matches": [
+        "https://www.themotorcafe.com/search/inventory*",
+        "https://www.themotorcafe.com/inventory/*"
+      ],
       "js": ["content/util.js", "content/themotorcafe.js", "content/sidebar.js"],
       "css": ["content/styles.css", "content/sidebar.css"],
       "run_at": "document_idle"
