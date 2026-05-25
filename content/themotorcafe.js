@@ -1,10 +1,8 @@
-// content/themotorcafe.js — The Motor Cafe motorcycle scraper + overlay (Scan-button starts it)
+// content/themotorcafe.js — The Motor Cafe motorcycle scraper + overlay
+// Platform: ARI/Endeavor Suite  |  themotorcafe.com/inventory/*
 (() => {
   const U = window.vputil || {};
-  const {
-    $, $$, clean, asNumber, sleep,
-    normColor, titleFromParts
-  } = U;
+  const { clean, asNumber, sleep, normColor } = U;
 
   // ---------- UI ----------
   function ensureUI() {
@@ -35,7 +33,7 @@
         <div class="vp-body">
           <table class="vp-grid" id="vp-grid"></table>
         </div>
-        <div class="vp-footer">Tip: Use "Open Facebook" to launch the Marketplace motorcycle form. Photos must be added manually (browser security).</div>
+        <div class="vp-footer">Tip: Use "Open Facebook" to launch the Marketplace form. Photos must be added manually.</div>
       </div>`;
     document.body.appendChild(modal);
 
@@ -45,21 +43,24 @@
     async function scanAndRender() {
       payload = await scan();
       const rows = [
-        ['Title', payload.title || ''],
-        ['Year', payload.year ?? ''],
-        ['Make', payload.make || ''],
-        ['Model', payload.model || ''],
-        ['Trim', payload.trim || ''],
-        ['Price', payload.price ?? ''],
-        ['Mileage', payload.mileage ?? ''],
-        ['VIN', payload.vin || ''],
-        ['Exterior', payload.exteriorColor || ''],
-        ['Engine', payload.engine || ''],
-        ['Fuel', payload.fuel || ''],
-        ['Images', payload.imagesCount ?? 0]
+        ['Title',   payload.title         || ''],
+        ['Year',    payload.year          ?? ''],
+        ['Make',    payload.make          || ''],
+        ['Model',   payload.model         || ''],
+        ['Trim',    payload.trim          || ''],
+        ['Price',   payload.price != null ? '$' + Number(payload.price).toLocaleString() : ''],
+        ['Mileage', payload.mileage != null && payload.mileage < 300 ? '300 (FB min)' : (payload.mileage ?? '')],
+        ['VIN',     payload.vin           || ''],
+        ['Stock #', payload.stockNumber   || ''],
+        ['Color',   payload.exteriorColor || ''],
+        ['Engine',  payload.engine        || ''],
+        ['Fuel',    payload.fuel          || ''],
+        ['Trans',   payload.transmission  || ''],
+        ['Images',  payload.imagesCount   ?? 0],
       ];
-      grid.innerHTML = rows.map(([k, v]) =>
-        `<tr><td class="key">${k}</td><td>${v ?? ''}</td></tr>`).join('');
+      grid.innerHTML = rows.map(function(r) {
+        return '<tr><td class="key">' + r[0] + '</td><td>' + (r[1] ?? '') + '</td></tr>';
+      }).join('');
     }
 
     const show = async () => { await scanAndRender(); document.getElementById('vp-modal').classList.add('show'); };
@@ -69,271 +70,197 @@
     document.getElementById('vp-rescan').addEventListener('click', scanAndRender);
     document.querySelector('#vp-modal .backdrop').addEventListener('click', hide);
     document.getElementById('vp-close').addEventListener('click', hide);
-
-    document.getElementById('vp-open-fb').addEventListener('click', () => {
-      window.open('https://www.facebook.com/marketplace/create/motorcycle', '_blank');
+    document.getElementById('vp-open-fb').addEventListener('click', function() {
+      window.open('https://www.facebook.com/marketplace/create/vehicle', '_blank');
     });
 
     document.getElementById('vp-send').addEventListener('click', async () => {
       if (!payload) payload = await scan();
       payload.vehicleCategory = 'motorcycle';
       await chrome.storage.local.set({ vehiclePayload: payload, vehiclePayloadTs: Date.now() });
-
-      // Add to vehicle history
       const { vehicleHistory = [] } = await chrome.storage.local.get(['vehicleHistory']);
-
-      // Check if motorcycle already exists in history (by URL)
-      const existingIndex = vehicleHistory.findIndex(v => v.url === payload.url);
-      if (existingIndex >= 0) {
-        // Update existing entry
-        vehicleHistory[existingIndex] = { ...vehicleHistory[existingIndex], ...payload, scrapedAt: Date.now() };
-      } else {
-        // Add new entry at the beginning
-        vehicleHistory.unshift({ ...payload, scrapedAt: Date.now() });
-
-        // Keep only last 20 vehicles
-        if (vehicleHistory.length > 20) {
-          vehicleHistory.splice(20);
-        }
-      }
-
+      const idx = vehicleHistory.findIndex(function(v) { return v.url === payload.url; });
+      if (idx >= 0) vehicleHistory[idx] = Object.assign({}, vehicleHistory[idx], payload, { scrapedAt: Date.now() });
+      else { vehicleHistory.unshift(Object.assign({}, payload, { scrapedAt: Date.now() })); if (vehicleHistory.length > 20) vehicleHistory.splice(20); }
       await chrome.storage.local.set({ vehicleHistory });
-      alert('Saved. Switch to the Facebook tab and click "Autofill motorcycle".');
+      alert('Saved. Switch to the Facebook tab and click "Autofill".');
     });
 
     document.getElementById('vp-download').addEventListener('click', async () => {
       if (!payload) payload = await scan();
-      await downloadPhotosAsZip(payload);
+      if (!payload.images || !payload.images.length) { alert('No images found.'); return; }
+      const btn = document.getElementById('vp-download');
+      btn.textContent = 'Starting...'; btn.disabled = true;
+      try {
+        const name = (payload.title || payload.year + ' ' + payload.make + ' ' + payload.model)
+          .replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
+        const resp = await chrome.runtime.sendMessage({ action: 'downloadImages', images: payload.images, folderName: name });
+        if (resp.success) alert('Downloading ' + resp.downloaded + '/' + resp.total + ' photos to Downloads/' + name + '/');
+        else throw new Error(resp.error);
+      } catch(e) { alert('Download error: ' + e.message); }
+      finally { setTimeout(function() { btn.textContent = 'Download Photos'; btn.disabled = false; }, 2000); }
     });
 
-    // Expose showModal for sidebar
     window.__hotShowModal = show;
   }
 
-  // ---------- DOWNLOAD ----------
-  async function downloadPhotosAsZip(payload) {
-    if (!payload.images || payload.images.length === 0) {
-      alert('No images found to download.');
-      return;
-    }
-
-    const downloadBtn = document.getElementById('vp-download');
-    const originalText = downloadBtn.textContent;
-    
-    try {
-      downloadBtn.textContent = 'Starting downloads...';
-      downloadBtn.disabled = true;
-
-      const vehicleTitle = payload.title || `${payload.year} ${payload.make} ${payload.model}`.trim();
-      const folderName = vehicleTitle.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
-      
-      // Send message to background script to handle downloads
-      const response = await chrome.runtime.sendMessage({
-        action: 'downloadImages',
-        images: payload.images,
-        folderName: folderName
-      });
-      
-      if (response.success) {
-        alert(`Started downloading ${response.downloaded}/${response.total} photos to Downloads/${folderName}/\n\nImages will appear in your Downloads folder shortly.`);
-        
-        if (response.errors.length > 0) {
-          console.warn('Some downloads failed:', response.errors);
-        }
-      } else {
-        throw new Error(response.error || 'Download failed');
-      }
-      
-    } catch (error) {
-      console.error('Error downloading photos:', error);
-      alert('Error downloading photos. Check console for details.');
-    } finally {
-      setTimeout(() => {
-        downloadBtn.textContent = originalText;
-        downloadBtn.disabled = false;
-      }, 2000);
-    }
-  }
-
   // ---------- SCRAPE ----------
-  async function ensureBasicsVisible() {
-    for (let i = 0; i < 6; i++) {
-      window.scrollBy(0, Math.round(window.innerHeight * 0.7));
-      await sleep(200);
-      if ($$('h2,h3').some(h => /specifications|details/i.test(h.textContent || ''))) break;
-    }
-  }
 
-  function fromBasics() {
-    // Look for "Specifications" or "Details" section
-    const heads = $$('h2,h3').filter(h => /specifications|details/i.test(h.textContent || ''));
-
-    // Use the section if found, otherwise search entire document
-    const block = heads.length > 0
-      ? (heads[0].closest('section,div') || heads[0].parentElement)
-      : document.body;
-
-    // Helper to extract value from text labels
-    const extractValue = (text, keyword) => {
-      const pattern1 = new RegExp(`^(.+?)\\s+${keyword}\\s*$`, 'i');
-      const match1 = text.match(pattern1);
-      if (match1) return match1[1].trim();
-
-      const pattern2 = new RegExp(`^${keyword}\\s*:\\s*(.+)$`, 'i');
-      const match2 = text.match(pattern2);
-      if (match2) return match2[1].trim();
-
-      return null;
-    };
-
-    // Search all text nodes for keyword patterns
-    const findByKeyword = (keywords, currentKeyword) => {
-      const allText = $$('*', block)
-        .filter(n => n.offsetParent !== null) // visible elements
-        .map(n => clean(n.textContent))
-        .filter(t => t.length > 0 && t.length < 200); // shorter text = more specific
-
-      for (const keyword of keywords) {
-        for (const text of allText) {
-          const value = extractValue(text, keyword);
-          if (value) {
-            return value;
-          }
-        }
-      }
-      return '';
-    };
-
-    const ext   = findByKeyword(['color', 'exterior'], 'color');
-    const engine= findByKeyword(['engine', 'displacement'], 'engine');
-    const fuel  = findByKeyword(['fuel type', 'fuel'], 'fuel type');
-    const trans = findByKeyword(['transmission'], 'transmission');
-    const miles = asNumber(findByKeyword(['mileage', 'miles'], 'mileage'));
-
-    return {
-      exteriorColorRaw: ext || '',
-      engine: engine || '',
-      fuel: fuel || '',
-      transmission: trans || '',
-      mileage: miles
-    };
-  }
-
-  function parseHeaderTitle() {
-    const h1 = $('h1,h2', document);
-    let txt = clean(h1?.textContent || '');
-
-    // Remove "New" or "Used" prefix
-    txt = txt.replace(/^(Used|New)\s+/i, '');
-
-    let year = null, make = '', model = '', trim = '';
-
-    // Extract year
-    const yearMatch = txt.match(/(\d{4})/);
-    if (yearMatch) {
-      year = parseInt(yearMatch[1], 10);
-      const withoutYear = txt.replace(/^\d{4}\s*/, '').trim();
-      const parts = withoutYear.split(/\s+/);
-      if (parts.length >= 2) {
-        make = parts[0];
-        model = parts[1];
-        if (parts.length > 2) {
-          trim = parts.slice(2).join(' ');
-        }
-      }
-    }
-
-    return {year, make, model, trim, title: clean(h1?.textContent || '')};
-  }
-
-  function parsePrice() {
-    const money = /\$?\d{1,3}(?:,\d{3})+|\$\d{4,6}/;
-    const nodes = $$('h1,h2,h3,[data-test*="price"],[class*="price"],div,span', document)
-      .filter(el => el.offsetParent !== null)
-      .slice(0, 500);
-
-    for (const n of nodes) {
-      const t = clean(n.textContent);
-      const m = t.match(money);
-      if (m) return asNumber(m[0]);
+  function fromJsonLD() {
+    const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+    for (let i = 0; i < scripts.length; i++) {
+      try {
+        const d = JSON.parse(scripts[i].textContent);
+        if (d['@type'] === 'Product') return d;
+      } catch(e) {}
     }
     return null;
   }
 
-  function getImages() {
-    const elements = $$('img[src], source[srcset]', document);
-    
-    const allUrls = elements
-      .map(el => el.getAttribute('src') || el.getAttribute('srcset') || '')
-      .flatMap(s => s.split(/\s*,\s*/))
-      .map(s => s.replace(/\s+\d+w$/, ''));
-    
-    const validUrls = allUrls.filter(u => /^https?:\/\//i.test(u));
-    
-    // Filter for high-quality motorcycle images
-    const highQualityImages = validUrls.filter(u => {
-      // Must be a valid image format
-      if (!/\.(jpg|jpeg|png|webp)/i.test(u)) return false;
-      
-      // Exclude common non-product images
-      if (/sprite|icon|logo|favicon|avatar|profile|thumbnail|thumb|small|mini/i.test(u)) return false;
-      
-      // Exclude very small images
-      const sizeMatch = u.match(/(\d{2,4})x(\d{2,4})/);
-      if (sizeMatch) {
-        const width = parseInt(sizeMatch[1]);
-        const height = parseInt(sizeMatch[2]);
-        if (width < 400 || height < 300) return false;
-      }
-      
-      // Include motorcycle-related or high quality images
-      return (
-        u.includes('motorcycle') || 
-        u.includes('bike') || 
-        u.includes('moto') || 
-        /photo|image|gallery|product/.test(u) ||
-        /large|big|full|original|high|detail/i.test(u) ||
-        /\d{3,4}x\d{3,4}/.test(u)
-      );
+  function fromOverviewTable() {
+    const out = {};
+    const table = document.querySelector('.brochure-overview-table');
+    if (!table) return out;
+    const rows = table.querySelectorAll('tr');
+    rows.forEach(function(tr) {
+      const cells = tr.querySelectorAll('td');
+      if (cells.length < 2) return;
+      const label = (cells[0].textContent || '').trim().toLowerCase();
+      const value = (cells[1].textContent || '').trim();
+      if (/^vin$/.test(label))               out.vin         = value;
+      if (/primary color|color/.test(label)) out.color       = value;
+      if (/usage|mileage|miles/.test(label)) out.mileageRaw  = value;
+      if (/stock/.test(label))               out.stockNumber = value;
     });
-    
-    return Array.from(new Set(highQualityImages)).slice(0, 20);
+    return out;
+  }
+
+  function fromSpecTables() {
+    const out = {};
+    const tables = document.querySelectorAll('table.table-striped');
+    tables.forEach(function(table) {
+      const rows = table.querySelectorAll('tr');
+      rows.forEach(function(tr) {
+        const cells = tr.querySelectorAll('td');
+        if (cells.length < 2) return;
+        const label = (cells[0].textContent || '').trim().toLowerCase();
+        const value = (cells[1].textContent || '').trim();
+        if (/engine type/.test(label))           out.engineType   = value;
+        if (/displacement/.test(label))          out.displacement = value;
+        if (/fuel system|fuel type/.test(label)) out.fuelRaw      = value;
+        if (/^transmission$/.test(label))        out.transmission = value;
+      });
+    });
+    return out;
+  }
+
+  function parsePrice(ld) {
+    const ldPrice = Number(ld && ld.offers && ld.offers.price);
+    if (ldPrice >= 100) return ldPrice;
+    const el = document.querySelector('span.value, span[itemprop="price"]');
+    if (el) {
+      const n = asNumber(el.textContent);
+      if (n >= 100) return n;
+    }
+    return null;
+  }
+
+  function getImages(ld) {
+    if (ld && ld.image) {
+      const raw = Array.isArray(ld.image) ? ld.image : [ld.image];
+      const urls = raw
+        .map(function(u) { return u.startsWith('//') ? 'https:' + u : u; })
+        .filter(function(u) { return /\.(jpg|jpeg|png|webp)/i.test(u); });
+      const inventory = urls.filter(function(u) { return /\/inventory\//i.test(u); });
+      const catalog   = urls.filter(function(u) { return !/\/inventory\//i.test(u); });
+      return inventory.concat(catalog).slice(0, 24);
+    }
+    const found = new Set();
+    document.querySelectorAll('img[src], [data-src]').forEach(function(el) {
+      ['src','data-src'].forEach(function(a) {
+        const v = el.getAttribute(a);
+        if (v && /cdnmedia\.endeavorsuite\.com/i.test(v) && /\.(jpg|jpeg|png|webp)/i.test(v))
+          found.add(v.startsWith('//') ? 'https:' + v : v);
+      });
+    });
+    return Array.from(found).slice(0, 24);
+  }
+
+  function parseTitle(ld) {
+    const raw = ((ld && ld.name) || (document.querySelector('h1') && document.querySelector('h1').textContent) || '').trim();
+    const m = raw.match(/^(\d{4})\s+(\S+)\s+(.+)$/);
+    if (m) {
+      const year  = parseInt(m[1], 10);
+      const make  = m[2];
+      const parts = m[3].split(/\s+/);
+      return { year: year, make: make, model: parts[0], trim: parts.slice(1).join(' '), title: raw };
+    }
+    return { year: null, make: '', model: raw, trim: '', title: raw };
   }
 
   async function scan() {
-    await ensureBasicsVisible();
+    for (let i = 0; i < 4; i++) { window.scrollBy(0, window.innerHeight * 0.7); await sleep(150); }
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    await sleep(200);
 
-    const basic = fromBasics();
-    const head  = parseHeaderTitle();
-    const price = parsePrice();
+    const ld       = fromJsonLD();
+    const overview = fromOverviewTable();
+    const specs    = fromSpecTables();
+    const head     = parseTitle(ld);
+    const price    = parsePrice(ld);
+    const images   = getImages(ld);
+
+    const mileageStr = (overview.mileageRaw || '').replace(/miles?/i, '').trim();
+    const mileage = asNumber(mileageStr) != null ? asNumber(mileageStr) : null;
+
+    const engine = [specs.engineType, specs.displacement].filter(Boolean).join(' — ');
+
+    const fuel = /electric/i.test(specs.fuelRaw || '') ? 'Electric'
+               : /hybrid/i.test(specs.fuelRaw || '')   ? 'Hybrid'
+               : 'Petrol';
+
+    const transmission = /auto/i.test(specs.transmission || '')
+      ? 'Automatic transmission' : 'Manual transmission';
+
+    const colorRaw = overview.color || '';
+    const exteriorColor = normColor ? normColor(colorRaw) : colorRaw;
 
     const v = {
-      source: 'themotorcafe.com',
-      url: location.href,
-      title: head.title || titleFromParts(head),
-
-      year: head.year ?? null,
-      make: head.make || '',
-      model: head.model || '',
-      trim: head.trim || '',
-
-      price: price ?? null,
-      mileage: basic.mileage ?? null,
-      vin: '',
-
-      exteriorColor: normColor(basic.exteriorColorRaw || ''),
-      engine: basic.engine || '',
-      fuel: basic.fuel || '',
-      transmission: basic.transmission || '',
-
-      images: getImages(),
-      imagesCount: getImages().length,
-      description: clean(document.querySelector('meta[name="description"]')?.content || '')
+      source:          'themotorcafe.com',
+      url:             location.href,
+      vehicleCategory: 'motorcycle',
+      title:           head.title,
+      year:            head.year,
+      make:            head.make,
+      model:           head.model,
+      trim:            head.trim,
+      price:           price,
+      mileage:         mileage,
+      vin:             overview.vin || '',
+      stockNumber:     overview.stockNumber || (ld && ld.sku) || '',
+      exteriorColor:   exteriorColor,
+      engine:          engine,
+      fuel:            fuel,
+      transmission:    transmission,
+      images:          images,
+      imagesCount:     images.length,
+      description:     ((ld && ld.description) || (document.querySelector('meta[name="description"]') && document.querySelector('meta[name="description"]').content) || '').trim(),
     };
 
+    console.log('[MotorCafe] Scraped:', v);
     return v;
   }
 
-  // boot
-  ensureUI();
+  // ---------- BOOT ----------
+  const isDetailPage = function() { return /\/inventory\/[^/]+/i.test(location.pathname); };
+
+  if (isDetailPage()) {
+    ensureUI();
+  }
+
+  window.__hotShowModal = async function() {
+    ensureUI();
+    const btn = document.getElementById('vp-scan');
+    if (btn) btn.click();
+  };
 })();
